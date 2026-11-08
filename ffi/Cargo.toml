@@ -1,0 +1,13 @@
+[package]
+name = "cutout-ffi"
+description = "C ABI over cutout-core for native front ends (SwiftUI on macOS, future Windows UI)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cutout-core = { path = "../core" }
+serde_json = "1.0"

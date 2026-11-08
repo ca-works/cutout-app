@@ -1,0 +1,10 @@
+# cargo-audit policy. Vulnerabilities and unsound crates fail the build. The
+# entries below are "unmaintained" notices only (no known vulnerability), reviewed
+# on 2026-11-05:
+#   * zbus_names / zvariant / zvariant_derive — pulled in only by the Linux
+#     desktop-portal stack of `rfd`; not part of the Windows or macOS builds.
+#   * ttf-parser — pure-safe-Rust font table parser used by the text stack
+#     (cosmic-text); no vulnerability, upstream moved to read-fonts/skrifa.
+# Re-review when upgrading cosmic-text / rfd.
+[advisories]
+ignore = ["RUSTSEC-2026-0192", "RUSTSEC-2026-0371", "RUSTSEC-2026-0370", "RUSTSEC-2026-0372"]

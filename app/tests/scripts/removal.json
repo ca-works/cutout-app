@@ -1,0 +1,15 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/test-subject.png"},
+  {"wait": 5},
+  {"action": "RemoveBg"},
+  {"wait": 3},
+  {"expect": {"has_mask": true, "transparent_pixels": true, "busy": false}},
+  {"wait": 30},
+  {"shot": "${OUT}/removal-done.png"},
+  {"expect": {"pixel": {"x": 320, "y": 240, "rgba": [220, 40, 40, 255], "tol": 6}}},
+  {"expect": {"pixel_alpha": {"x": 2, "y": 2, "le": 8}}},
+  {"expect": {"pixel_alpha": {"x": 320, "y": 240, "ge": 247}}},
+  {"export": "${OUT}/removal-result.png"},
+  {"quit": true}
+]

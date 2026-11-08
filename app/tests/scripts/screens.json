@@ -1,0 +1,18 @@
+[
+  {"appearance": "dark"}, {"sleep": 1000},
+  {"shot": "${OUT}/dark-1-empty.png"},
+  {"open": "${DATA}/test-subject.png"}, {"wait": 20},
+  {"action": "ToggleTools"}, {"action": "ToggleLayers"}, {"sleep": 1000},
+  {"tool": "magicEraser"},
+  {"run": {"cmd": "magic_erase", "x": 10, "y": 10, "tolerance": 25, "contiguous": true, "antialias": true, "feather": 0}},
+  {"sleep": 1000},
+  {"shot": "${OUT}/dark-2-tools-layers.png"},
+  {"action": "ManageModels"}, {"sleep": 1000},
+  {"shot": "${OUT}/dark-3-models.png"},
+  {"key": "Escape"}, {"sleep": 1000},
+  {"appearance": "light"}, {"sleep": 1000},
+  {"shot": "${OUT}/light-2-tools-layers.png"},
+  {"action": "ClearWorkspace"}, {"sleep": 1000},
+  {"shot": "${OUT}/light-1-empty.png"},
+  {"quit": true}
+]

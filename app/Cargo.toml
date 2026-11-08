@@ -1,0 +1,52 @@
+[package]
+name = "cutout-desktop"
+description = "CutOut desktop application (Windows; also runs on macOS for development) — a Rust shell over cutout-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "CutOut"
+path = "src/main.rs"
+
+[features]
+default = []
+# Optional DirectML GPU execution provider for the AI model (Windows only).
+directml = ["cutout-core/directml"]
+
+[dependencies]
+cutout-core = { path = "../core" }
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
+rfd = "0.17"
+raw-window-handle = "0.6"
+cosmic-text = "0.19"
+dirs = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "tiff", "bmp"] }
+moxcms = "0.8"
+# Opt-in model download only (pinned HTTPS URL + SHA-256). Uses the OS TLS stack (SChannel on Windows).
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_SystemInformation",
+  "Win32_System_Ole",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Development-only clipboard on macOS/Linux so the UI can be exercised off Windows.
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+
+[build-dependencies]
+winresource = "0.1"

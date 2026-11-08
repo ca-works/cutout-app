@@ -1,0 +1,6 @@
+# Pinned upstream: huggingface.co/ZhengPeng7/BiRefNet@66f7f80c1a64b3c4df327a07eeca4e87130b787b (MIT)
+# Weights are the 2024-07-28 general-use fp32 weights (same as the onnx-community export used by the ONNX path).
+# file  bytes  sha256
+birefnet.py 92068 a9566611aa07a6fbb68ddb6ac8e19e62c879a428fbfc2f44efa53d233f2e302f
+BiRefNet_config.py 298 e7b8c2a74f6cea6a59553d517f71d47f2c1d90e670a13416af17c25fe2f3dc52
+model.safetensors 884878856 77277264c0e8c74149d3ff2fade4fd8176965b7108f3c5fc3b8c9c811edb4519

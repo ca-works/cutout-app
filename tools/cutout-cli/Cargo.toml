@@ -1,0 +1,11 @@
+[package]
+name = "cutout-cli"
+description = "Command-line benchmark and batch tool for the CutOut engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cutout-core = { path = "../../core" }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+serde_json = "1.0"

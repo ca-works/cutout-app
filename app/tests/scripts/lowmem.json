@@ -1,0 +1,13 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/test-subject.png"},
+  {"wait": 5},
+  {"action": "RemoveBg"},
+  {"wait": 18},
+  {"expect": {"sheet": true, "busy": false}},
+  {"shot": "${OUT}/lowmem-1-sheet.png"},
+  {"key": "Escape"},
+  {"wait": 4},
+  {"expect": {"sheet": false, "busy": false, "has_mask": false}},
+  {"quit": true}
+]

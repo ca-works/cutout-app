@@ -1,0 +1,4 @@
+# Expected output of tools/convert/convert.py with requirements.lock + SOURCES.txt
+# (verified by install.sh and by the app before use)
+# file  bytes  sha256
+weight.bin 463618272 66044c149f7a152d9b1c522a681a09ebb9d73db5fd27fefaf05c79ec9034287f
