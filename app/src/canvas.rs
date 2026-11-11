@@ -57,6 +57,12 @@ pub struct CanvasState {
     pub ppp: f32,
     pub hover: bool,
     dark: bool,
+    /// Canvas size and side-panel visibility seen on the previous frame (viewport-change detection).
+    last_view: Option<(Vec2, bool, bool)>,
+    /// Image-space rectangle to fit (None = the document). Refreshed only when a fit is requested,
+    /// never while the user is dragging, so editing can't make the view jump.
+    pub fit_bounds: Option<Rect>,
+    pub bounds_dirty: bool,
 }
 
 impl CanvasState {
@@ -83,6 +89,9 @@ impl CanvasState {
             ppp: 1.0,
             hover: false,
             dark: true,
+            last_view: None,
+            fit_bounds: None,
+            bounds_dirty: true,
         }
     }
 
@@ -103,18 +112,30 @@ impl CanvasState {
         Rect::from_min_size(self.rect.min + self.offset, Vec2::new(self.img_size.0 as f32 * self.scale, self.img_size.1 as f32 * self.scale))
     }
 
+    /// Image-space rectangle the fit has to show: the document, plus (see `App::compute_fit_bounds`)
+    /// the active layer's transform box when it extends past the document.
+    pub fn has_anim(&self) -> bool {
+        self.anim.is_some()
+    }
+
+    pub fn bounds(&self) -> Rect {
+        self.fit_bounds.unwrap_or_else(|| Rect::from_min_size(Pos2::ZERO, Vec2::new(self.img_size.0 as f32, self.img_size.1 as f32)))
+    }
+
     fn fit_scale(&self) -> f32 {
         if self.img_size.0 == 0 {
             return 1.0;
         }
-        let pad = 32.0;
-        let s = ((self.rect.width() - pad * 2.0) / self.img_size.0 as f32).min((self.rect.height() - pad * 2.0) / self.img_size.1 as f32);
+        let pad = 48.0; // leaves room for the rotation handle (26 pt beyond the edge) and the corner handles
+        let b = self.bounds();
+        let s = ((self.rect.width() - pad * 2.0) / b.width().max(1.0)).min((self.rect.height() - pad * 2.0) / b.height().max(1.0));
         s.clamp(0.005, 1.0) // never upscale beyond 1 pt per pixel when fitting
     }
 
     fn fit_target(&self) -> (f32, Vec2) {
         let s = self.fit_scale();
-        (s, Vec2::new((self.rect.width() - self.img_size.0 as f32 * s) / 2.0, (self.rect.height() - self.img_size.1 as f32 * s) / 2.0))
+        let b = self.bounds();
+        (s, Vec2::new(self.rect.width() / 2.0 - b.center().x * s, self.rect.height() / 2.0 - b.center().y * s))
     }
 
     fn clamp_offset(&mut self) {
@@ -137,6 +158,7 @@ impl CanvasState {
 
     pub fn zoom_to_fit(&mut self, animated: bool) {
         self.fitted = true;
+        self.bounds_dirty = true;
         if animated && self.img_size.0 > 0 {
             self.anim = Some(Anim { t0: Instant::now(), from: (self.scale, self.offset), to: self.fit_target() });
         } else {
@@ -196,8 +218,41 @@ impl CanvasState {
         }
     }
 
+    /// React to the visible canvas area changing (side panels opening/closing, window or
+    /// splitter resize). Purely a camera change: document coordinates are never touched.
+    /// * A panel toggle re-fits the whole document into the new area. While the panel slides,
+    ///   the fitted state tracks the shrinking/growing rectangle every frame, which is the
+    ///   smooth transition and cannot accumulate error (the target is recomputed from scratch).
+    /// * Any other size change keeps a fitted view fitted, and keeps a zoomed view anchored on
+    ///   the same image point at the centre of the canvas.
+    pub fn viewport_changed(&mut self, tools: bool, layers: bool, editing: bool) {
+        let size = self.rect.size();
+        let prev = self.last_view.replace((size, tools, layers));
+        let Some((psize, ptools, players)) = prev else { return };
+        if self.img_size.0 == 0 || editing {
+            return;
+        }
+        if tools != ptools || layers != players {
+            self.fitted = true;
+            self.bounds_dirty = true;
+            self.anim = None;
+        } else if !self.fitted && (size - psize).length() > 0.5 {
+            self.offset += (size - psize) / 2.0;
+            self.anim = None;
+            self.clamp_offset();
+        }
+    }
+
     /// Advance zoom animation / fit; returns true while something is animating.
     fn tick(&mut self) -> bool {
+        // A fit animation always aims at the *current* fit target, so a fit started while a panel is
+        // still sliding (or the window is resizing) cannot end on a stale size and snap afterwards.
+        if self.fitted && self.anim.is_some() {
+            let to = self.fit_target();
+            if let Some(a) = &mut self.anim {
+                a.to = to;
+            }
+        }
         if let Some(a) = &self.anim {
             let t = (a.t0.elapsed().as_secs_f32() / 0.22).min(1.0);
             let e = 1.0 - (1.0 - t).powi(3);
@@ -280,6 +335,7 @@ impl App {
             self.canvas.tiles = if w > 0 && h > 0 { Some(TileSet::new(&ctx, "doc", frame.data, w, h, nearest)) } else { None };
             self.canvas.img_size = (w, h);
             if size_changed {
+                self.canvas.bounds_dirty = true;
                 if self.tool == Tool::Crop {
                     self.canvas.crop_rect = if w > 0 { Some([0.0, 0.0, w as f64, h as f64]) } else { None };
                 }
@@ -354,7 +410,7 @@ impl App {
     }
 
     /// Corners of the active layer in view coordinates (tl, tr, br, bl).
-    fn active_quad(&self) -> Option<[Pos2; 4]> {
+    pub fn active_quad(&self) -> Option<[Pos2; 4]> {
         let l = self.state().active_layer()?;
         let t = l.transform;
         let (w, h) = (l.width as f64, l.height as f64);
@@ -366,7 +422,30 @@ impl App {
         Some([map(0.0, 0.0), map(w, 0.0), map(w, h), map(0.0, h)])
     }
 
-    fn rotate_handle(q: &[Pos2; 4]) -> Pos2 {
+    /// Image-space bounds to fit: the document, grown to include the active layer's transform box
+    /// and rotation handle when that box sticks out of the document (capped at one extra document
+    /// size per side so an extreme scale can't shrink the view to nothing). Camera-only.
+    fn compute_fit_bounds(&self) -> Option<Rect> {
+        let (w, h) = (self.canvas.img_size.0 as f32, self.canvas.img_size.1 as f32);
+        let doc = Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h));
+        let l = self.state().active_layer()?;
+        let t = l.transform;
+        let (lw, lh) = (l.width as f64, l.height as f64);
+        let (c, s) = (t.rotation.cos(), t.rotation.sin());
+        let map = |x: f64, y: f64| {
+            let (lx, ly) = ((x - lw / 2.0) * t.scale_x, (y - lh / 2.0) * t.scale_y);
+            Pos2::new((c * lx - s * ly + t.x) as f32, (s * lx + c * ly + t.y) as f32)
+        };
+        let mut b = doc;
+        for p in [map(0.0, 0.0), map(lw, 0.0), map(lw, lh), map(0.0, lh)] {
+            b.extend_with(p);
+        }
+        let cap = doc.expand2(Vec2::new(w, h));
+        let b = b.intersect(cap);
+        (b != doc && b.is_positive()).then_some(b)
+    }
+
+    pub fn rotate_handle(q: &[Pos2; 4]) -> Pos2 {
         let top = Pos2::new((q[0].x + q[1].x) / 2.0, (q[0].y + q[1].y) / 2.0);
         let center = Pos2::new((q[0].x + q[2].x) / 2.0, (q[0].y + q[2].y) / 2.0);
         let d = top - center;
@@ -774,6 +853,21 @@ impl App {
             if (z - 1.0).abs() > 1e-4 && !mods.command && !mods.ctrl {
                 let a = self.canvas.last_mouse;
                 self.canvas.zoom_by(z, a, false);
+            }
+        }
+        let editing = !matches!(self.canvas.drag, Drag::None);
+        self.canvas.viewport_changed(self.settings.show_tools, self.settings.show_layers, editing);
+        if self.canvas.bounds_dirty && !editing {
+            self.canvas.bounds_dirty = false;
+            let nb = if self.is_empty() { None } else { self.compute_fit_bounds() };
+            if nb != self.canvas.fit_bounds {
+                self.canvas.fit_bounds = nb;
+                if self.canvas.anim.is_some() && self.canvas.fitted {
+                    let to = self.canvas.fit_target();
+                    if let Some(a) = &mut self.canvas.anim {
+                        a.to = to;
+                    }
+                }
             }
         }
         if self.canvas.tick() {

@@ -357,7 +357,7 @@ fn backend_pill(app: &App, ui: &mut egui::Ui) {
     let (text, glyph) = if let Some(b) = &app.active_backend {
         (b.clone(), icons::CPU)
     } else if models::has_best_model(&app.settings.best_model) {
-        (if app.settings.use_directml && cutout_core::ai::accel_available(cutout_core::ai::Accel::DirectMl) { "ONNX (DirectML)" } else { "ONNX (CPU)" }.to_string(), icons::CPU)
+        (if crate::models::gpu_candidate(app.settings.use_directml, &app.settings.best_model).is_some() { "ONNX (DirectML)" } else { "ONNX (CPU)" }.to_string(), icons::CPU)
     } else {
         ("No model installed".to_string(), icons::TRIANGLE_ALERT)
     };

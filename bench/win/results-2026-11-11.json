@@ -1,0 +1,114 @@
+{
+  "gpu": {
+    "model": "birefnet-general-v2-gpu.onnx",
+    "accel": "directml",
+    "runs": 2,
+    "samples": 12,
+    "load_ms": 2769.5,
+    "inference_ms": {
+      "median": 319.0,
+      "p90": 323,
+      "max": 326
+    },
+    "pre_ms": {
+      "median": 4.0,
+      "max": 20
+    },
+    "post_ms": {
+      "median": 105.0,
+      "max": 433
+    },
+    "total_ms": {
+      "median": 428.5,
+      "p90": 725,
+      "max": 776
+    },
+    "peak_working_set_mb": 861,
+    "peak_private_mb": 6387,
+    "peak_gpu_mib": 5280
+  },
+  "cpu": {
+    "model": "birefnet-general-v2-cpu.onnx",
+    "accel": "cpu",
+    "runs": 2,
+    "samples": 12,
+    "load_ms": 2385.0,
+    "inference_ms": {
+      "median": 6946.0,
+      "p90": 7083,
+      "max": 7177
+    },
+    "pre_ms": {
+      "median": 5.0,
+      "max": 19
+    },
+    "post_ms": {
+      "median": 108.5,
+      "max": 391
+    },
+    "total_ms": {
+      "median": 7063.0,
+      "p90": 7309,
+      "max": 7492
+    },
+    "peak_working_set_mb": 3378,
+    "peak_private_mb": 3368,
+    "peak_gpu_mib": 0
+  },
+  "legacy-gpu": {
+    "model": "birefnet-general-fp16.onnx",
+    "accel": "directml",
+    "runs": 2,
+    "samples": 12,
+    "load_ms": 6678.0,
+    "inference_ms": {
+      "median": 498.0,
+      "p90": 506,
+      "max": 508
+    },
+    "pre_ms": {
+      "median": 6.0,
+      "max": 21
+    },
+    "post_ms": {
+      "median": 117.0,
+      "max": 395
+    },
+    "total_ms": {
+      "median": 622.5,
+      "p90": 912,
+      "max": 923
+    },
+    "peak_working_set_mb": 955,
+    "peak_private_mb": 8423,
+    "peak_gpu_mib": 7133
+  },
+  "legacy-cpu": {
+    "model": "birefnet-general-fp32.onnx",
+    "accel": "cpu",
+    "runs": 2,
+    "samples": 12,
+    "load_ms": 6434.5,
+    "inference_ms": {
+      "median": 10590.0,
+      "p90": 10914,
+      "max": 11003
+    },
+    "pre_ms": {
+      "median": 5.0,
+      "max": 21
+    },
+    "post_ms": {
+      "median": 120.0,
+      "max": 418
+    },
+    "total_ms": {
+      "median": 10801.0,
+      "p90": 11091,
+      "max": 11185
+    },
+    "peak_working_set_mb": 7236,
+    "peak_private_mb": 7266,
+    "peak_gpu_mib": 0
+  }
+}

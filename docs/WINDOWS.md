@@ -2,7 +2,10 @@
 
 CutOut for Windows is the same application as the macOS edition, built on the
 same engine. This page covers the architecture, how to build and install it,
-troubleshooting and the known limitations.
+troubleshooting and the known limitations. See [PARITY.md](PARITY.md) for the
+feature-by-feature comparison and its verification status,
+[WINDOWS_SECURITY.md](WINDOWS_SECURITY.md) for the security review and
+[RELEASING.md](RELEASING.md) for how a release is produced.
 
 > **Verification levels used in these documents**
 >
@@ -64,17 +67,20 @@ troubleshooting and the known limitations.
 Download `CutOut-Windows-x64-Setup.exe` from the release page (ARM64 PCs can use
 the x64 installer through Windows' built-in emulation, or
 `CutOut-Windows-ARM64-Setup.exe` for a native build). Double-click it and follow
-the wizard. Per-user installation needs no administrator rights; choose
-"Install for all users" if you want a machine-wide install. The installer
-includes the AI model, so **Remove Background works offline immediately**.
+the wizard. The default is a per-user installation into
+`%LOCALAPPDATA%\Programs\CutOut` that needs no administrator rights and no
+UAC prompt (the "all users" choice, which does ask Windows for elevation, is
+optional). Installing over an older version upgrades it in place and keeps your
+settings. The installer (≈ 574 MiB) includes the AI model, so **Remove
+Background works offline immediately**.
 
-Requirements: Windows 10 (1809) or Windows 11, 64-bit; a DirectX 12 or Vulkan
+Requirements: Windows 10 (1903) or Windows 11, 64-bit; a DirectX 12 or Vulkan
 capable graphics driver (software rendering through Windows' built-in WARP
 adapter works too); **16 GB RAM recommended** for Best Quality removal (see
 limitations).
 
 **Windows SmartScreen.** Release 0.1 is **not Authenticode-signed**
-(see Installing), so
+([WINDOWS_SECURITY.md](WINDOWS_SECURITY.md#code-signing-and-smartscreen)), so
 SmartScreen may show "Windows protected your PC". Verify the download first
 (below), then choose *More info → Run anyway*. Never disable Windows Defender
 or SmartScreen to run CutOut.
@@ -108,8 +114,9 @@ cargo test  --release -p cutout-core -p cutout-desktop
 .\installer\build-installer.ps1 -Arch x64 -Model fp32   # dist\CutOut-Windows-x64-Setup.exe
 ```
 
-`-Model fp16` bundles the same weights at half precision (490 MB instead of
-973 MB; identical mattes in our tests, ≈15 % slower); `-Model none` builds a
+The default `-Model v2` bundles the compact three-file package (588 MB; build it
+with `tools\convert\export_onnx.py`). `-Model fp32` / `-Model fp16` bundle the
+downloadable onnx-community export instead; `-Model none` builds a
 small installer without a model (the user then installs one from *Manage AI
 Models*). The model is verified against its pinned SHA-256 before it is packaged
 and again before first use.
@@ -146,7 +153,8 @@ On macOS you can run the same shell for development: `cargo run -p cutout-deskto
 
 ## Known limitations
 
-The important ones: best-quality removal is CPU-only by default (slow, memory-hungry
+See [PARITY.md](PARITY.md#gaps-and-limitations) for the full, current list. The
+important ones: best-quality removal is CPU-only by default (slow, memory-hungry
 compared with Core ML); Fast mode on Windows is BiRefNet Lite, not an instant
 mode; HEIC/HEIF files are not opened; images dragged from a web browser (as
 opposed to files) are not accepted; the build is not code-signed; nothing in

@@ -202,21 +202,35 @@ pub fn guided_filter_color(g: &[FPlane; 3], src: &FPlane, r: usize, eps: f32) ->
 pub fn rgb_planes(rgba: &[u8], w: usize, h: usize, factor: usize) -> [FPlane; 3] {
     let f = factor.max(1);
     let (ow, oh) = (w.div_ceil(f), h.div_ceil(f));
-    let mut out = [FPlane::new(ow, oh), FPlane::new(ow, oh), FPlane::new(ow, oh)];
-    let mut cnt = vec![0f32; ow * oh];
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y * w + x) * 4;
-            let o = (y / f) * ow + x / f;
-            for c in 0..3 {
-                out[c].data[o] += rgba[i + c] as f32 / 255.0;
+    // One output row at a time (in parallel); within a row the source pixels are summed in the
+    // same order as a plain scan, so the result does not depend on the number of threads.
+    let rows: Vec<[Vec<f32>; 3]> = (0..oh)
+        .into_par_iter()
+        .map(|oy| {
+            let mut acc = [vec![0f32; ow], vec![0f32; ow], vec![0f32; ow]];
+            let mut cnt = vec![0f32; ow];
+            for y in oy * f..((oy + 1) * f).min(h) {
+                let line = &rgba[y * w * 4..(y + 1) * w * 4];
+                for (x, px) in line.chunks_exact(4).enumerate() {
+                    let o = x / f;
+                    for c in 0..3 {
+                        acc[c][o] += px[c] as f32 / 255.0;
+                    }
+                    cnt[o] += 1.0;
+                }
             }
-            cnt[o] += 1.0;
-        }
-    }
-    for c in &mut out {
-        for (v, n) in c.data.iter_mut().zip(cnt.iter()) {
-            *v /= n.max(1.0);
+            for ch in &mut acc {
+                for (v, n) in ch.iter_mut().zip(cnt.iter()) {
+                    *v /= n.max(1.0);
+                }
+            }
+            acc
+        })
+        .collect();
+    let mut out = [FPlane::new(ow, oh), FPlane::new(ow, oh), FPlane::new(ow, oh)];
+    for (oy, row) in rows.iter().enumerate() {
+        for c in 0..3 {
+            out[c].data[oy * ow..(oy + 1) * ow].copy_from_slice(&row[c]);
         }
     }
     out
@@ -226,17 +240,18 @@ pub fn downsample_plane(p: &[u8], w: usize, h: usize, factor: usize) -> FPlane {
     let f = factor.max(1);
     let (ow, oh) = (w.div_ceil(f), h.div_ceil(f));
     let mut out = FPlane::new(ow, oh);
-    let mut cnt = vec![0f32; ow * oh];
-    for y in 0..h {
-        for x in 0..w {
-            let o = (y / f) * ow + x / f;
-            out.data[o] += p[y * w + x] as f32 / 255.0;
-            cnt[o] += 1.0;
+    out.data.par_chunks_mut(ow).enumerate().for_each(|(oy, acc)| {
+        let mut cnt = vec![0f32; ow];
+        for y in oy * f..((oy + 1) * f).min(h) {
+            for (x, v) in p[y * w..(y + 1) * w].iter().enumerate() {
+                acc[x / f] += *v as f32 / 255.0;
+                cnt[x / f] += 1.0;
+            }
         }
-    }
-    for (v, n) in out.data.iter_mut().zip(cnt.iter()) {
-        *v /= n.max(1.0);
-    }
+        for (v, n) in acc.iter_mut().zip(cnt.iter()) {
+            *v /= n.max(1.0);
+        }
+    });
     out
 }
 

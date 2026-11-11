@@ -1,0 +1,13 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/vp-main.png"}, {"wait": 6}, {"sleep": 300},
+  {"action": "ZoomIn"}, {"sleep": 500},
+  {"action": "ToggleTools"}, {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+  {"action": "ToggleLayers"}, {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"action": "ToggleLayers"}, {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"action": "Actual"}, {"action": "ToggleLayers"}, {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true}}
+]

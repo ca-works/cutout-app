@@ -1,0 +1,38 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/vp-main.png"}, {"wait": 6}, {"sleep": 300},
+  {"open": "${DATA}/vp-second.png"}, {"wait": 6}, {"sleep": 400},
+  {"expect": {"layers": 2, "image_fit": true}},
+
+  {"run": {"cmd": "set_transform", "transform": {"x": 1700, "y": -50, "scale_x": 3, "scale_y": 3, "rotation": 0.6}}},
+  {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": 1700, "y": -50, "scale_x": 3, "scale_y": 3, "rotation": 0.6}}},
+  {"shot": "${OUT}/vl-1-outside.png"},
+  {"action": "ToggleTools"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": 1700, "y": -50, "scale_x": 3, "scale_y": 3, "rotation": 0.6}}},
+  {"action": "ToggleLayers"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": 1700, "y": -50, "scale_x": 3, "scale_y": 3, "rotation": 0.6}}},
+  {"shot": "${OUT}/vl-2-outside-both.png"},
+  {"action": "ToggleTools"}, {"sleep": 800}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"action": "ToggleLayers"}, {"sleep": 800}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"action": "ToggleTools"}, {"sleep": 800}, {"action": "ToggleTools"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": 1700, "y": -50, "scale_x": 3, "scale_y": 3, "rotation": 0.6}}},
+
+  {"run": {"cmd": "set_transform", "transform": {"x": -300, "y": 1200, "scale_x": 2, "scale_y": 5, "rotation": -1.1}}},
+  {"action": "ToggleLayers"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": -300, "y": 1200, "scale_x": 2, "scale_y": 5, "rotation": -1.1}}},
+  {"shot": "${OUT}/vl-3-outside2.png"},
+
+  {"run": {"cmd": "set_transform", "transform": {"x": 800, "y": 450, "scale_x": 1, "scale_y": 1, "rotation": 0}}},
+  {"action": "Fit"}, {"sleep": 700},
+  {"expect": {"image_fit": true, "handles_visible": true}},
+  {"action": "ToggleTools"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true}},
+  {"drag_image": [[800, 450], [820, 460], [900, 500]]}, {"sleep": 300},
+  {"expect": {"layer_transform": {"index": 1, "x": 900, "y": 500, "tol": 2}}},
+  {"action": "ToggleLayers"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true, "layer_transform": {"index": 1, "x": 900, "y": 500, "tol": 2}}},
+  {"drag_image": [[900, 500], [950, 530], [1000, 450]]}, {"sleep": 300},
+  {"expect": {"layer_transform": {"index": 1, "x": 1000, "y": 450, "tol": 2}}},
+  {"shot": "${OUT}/vl-4-dragged.png"}
+]

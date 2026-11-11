@@ -290,7 +290,7 @@ pub enum Sheet {
     Text(TextSheet),
     JpegWarning { action: CopyAction, dont_ask: bool },
     /// Best Quality needs ≈10 GB of free memory; offer alternatives when there is less.
-    LowMemory { mode: RemovalMode, avail_gb: f64 },
+    LowMemory { mode: RemovalMode, avail_gb: f64, need_gb: f64 },
     Settings,
     About,
     Shortcuts,
@@ -496,6 +496,10 @@ pub struct App {
     pub wordmark: Option<(TextureHandle, egui::Vec2)>,
     pub model_task: Option<ModelTask>,
     pub model_msg: Option<String>,
+    /// A file export being encoded and written on a worker thread.
+    pub export_job: Option<Receiver<Result<String, String>>>,
+    /// The document was empty on the previous frame (an image arriving triggers the GPU pre-load).
+    was_empty: bool,
     pub font_list: Option<Vec<String>>,
     pub active_backend: Option<String>,
     pub quit: bool,
@@ -546,6 +550,8 @@ impl App {
             wordmark: None,
             model_task: None,
             model_msg: None,
+            export_job: None,
+            was_empty: true,
             font_list: None,
             active_backend: None,
             quit: false,
@@ -875,7 +881,7 @@ impl App {
     }
 
     pub fn export(&mut self, format: Format, scale: f64) {
-        if self.is_empty() {
+        if self.is_empty() || self.export_job.is_some() {
             return;
         }
         let Some(mut img) = self.doc.export(false) else { return };
@@ -894,15 +900,41 @@ impl App {
         if path.extension().is_none() {
             path.set_extension(format.ext());
         }
-        match codec::encode(&img, format) {
-            Ok(bytes) => match write_atomic(&path, &bytes) {
-                Ok(()) => {
-                    let n = path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-                    self.show_toast(&format!("Exported {n}"), crate::icons::DOWNLOAD, false)
+        // Encoding a large PNG takes seconds; do it (and the write) off the UI thread.
+        let (tx, rx) = channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let r = match codec::encode(&img, format) {
+                Ok(bytes) => match write_atomic(&path, &bytes) {
+                    Ok(()) => Ok(format!("Exported {}", path.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())),
+                    Err(e) => Err(format!("Export failed: {e}")),
+                },
+                Err(_) => Err("Could not encode the image".to_string()),
+            };
+            let _ = tx.send(r);
+            ctx.request_repaint();
+        });
+        self.busy = Some(Busy { title: "Exporting…".into(), cancellable: false });
+        self.export_job = Some(rx);
+    }
+
+    fn poll_export(&mut self) {
+        let Some(rx) = &self.export_job else { return };
+        match rx.try_recv() {
+            Ok(r) => {
+                self.export_job = None;
+                self.busy = None;
+                match r {
+                    Ok(m) => self.show_toast(&m, crate::icons::DOWNLOAD, false),
+                    Err(e) => self.error_toast(&e),
                 }
-                Err(e) => self.error_toast(&format!("Export failed: {e}")),
-            },
-            Err(_) => self.error_toast("Could not encode the image"),
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => self.ctx.request_repaint_after(Duration::from_millis(100)),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.export_job = None;
+                self.busy = None;
+                self.error_toast("Export failed");
+            }
         }
     }
 
@@ -921,6 +953,20 @@ impl App {
     }
 
     // ------------------------------------------------ background removal ---
+
+    /// When the first image arrives, load the GPU inference session in the background so that the
+    /// first Remove Background starts at once. Nothing is loaded at start-up or for an empty window.
+    fn prewarm_on_first_image(&mut self) {
+        let empty = self.is_empty();
+        if self.was_empty && !empty && self.removal.is_none() && std::env::var_os("CUTOUT_NO_PREWARM").is_none() {
+            if let Some((spec, graph)) = models::gpu_candidate(self.settings.use_directml, &self.settings.best_model) {
+                if crate::platform::sysinfo::available_memory().map_or(true, |a| a >= models::gpu_host_bytes(&spec)) {
+                    models::prewarm(spec, graph);
+                }
+            }
+        }
+        self.was_empty = empty;
+    }
 
     pub fn is_removing(&self) -> bool {
         self.removal.is_some()
@@ -944,10 +990,17 @@ impl App {
             self.sheet = Some(Sheet::ModelSetup);
             return;
         };
-        if !force && spec.id != models::BIREFNET_LITE.id {
-            if let Some(avail) = crate::platform::sysinfo::available_memory() {
-                if avail < 9_500_000_000 {
-                    self.sheet = Some(Sheet::LowMemory { mode, avail_gb: avail as f64 / 1e9 });
+        // GPU (DirectML, fp16) is only for the full BiRefNet network; any failure falls back to the CPU model.
+        let gpu = if mode == RemovalMode::Best { models::gpu_candidate(self.settings.use_directml, &self.settings.best_model) } else { None };
+        // With too little free host memory for the GPU path, the normal low-memory check below decides.
+        let avail = crate::platform::sysinfo::available_memory();
+        let gpu = gpu.filter(|(g, _)| avail.map_or(true, |a| a >= models::gpu_host_bytes(g)));
+        if !force && spec.id != models::BIREFNET_LITE.id && gpu.is_none() {
+            // CPU removal: warn when less than the model's measured peak plus a margin is free.
+            let need = spec.cpu_peak_bytes + spec.cpu_peak_bytes / 4;
+            if let Some(avail) = avail {
+                if avail < need {
+                    self.sheet = Some(Sheet::LowMemory { mode, avail_gb: avail as f64 / 1e9, need_gb: (need as f64 / 1e9).ceil() });
                     return;
                 }
             }
@@ -955,7 +1008,7 @@ impl App {
         let Some(pixels) = self.doc.layer_pixels(layer.id) else { return };
         let (w, h) = (pixels.width, pixels.height);
         self.busy = Some(Busy { title: if mode == RemovalMode::Best { "Removing background…".into() } else { "Removing background (Fast)…".into() }, cancellable: true });
-        let removal = models::start_removal(pixels, *spec, path, self.settings.use_directml);
+        let removal = models::start_removal(pixels, *spec, path, gpu);
         self.removal = Some(RemovalJob { removal, layer: layer.id, started: Instant::now(), w, h });
         self.ctx.request_repaint();
     }
@@ -984,6 +1037,7 @@ impl App {
                     Ok(()) => {
                         self.refresh(false);
                         let secs = job.started.elapsed().as_secs_f64();
+                        self.script_note(serde_json::json!({"removal_secs": secs, "backend": self.active_backend}));
                         self.show_toast(&format!("Background removed in {secs:.1} s"), crate::icons::SPARKLES, false);
                     }
                     Err(e) => self.error_toast(&e),
@@ -1344,6 +1398,8 @@ impl App {
         self.script_tick(ctx);
         self.poll_removal();
         self.poll_model_task();
+        self.poll_export();
+        self.prewarm_on_first_image();
         self.handle_drops(ctx);
         self.handle_global_input(ctx);
         if let Some(t) = &self.toast {

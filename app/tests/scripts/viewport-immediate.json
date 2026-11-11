@@ -1,0 +1,10 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/vp-main.png"}, {"wait": 6}, {"sleep": 300},
+  {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"sleep": 400},
+  {"action": "ToggleLayers"}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"sleep": 400},
+  {"action": "ToggleTools"}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"sleep": 400},
+  {"action": "ToggleLayers"}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"wait": 1}, {"expect": {"image_fit": true}}, {"sleep": 400},
+  {"expect": {"image_fit": true}}
+]

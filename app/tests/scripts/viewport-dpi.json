@@ -1,0 +1,18 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/vp-main.png"}, {"wait": 6}, {"sleep": 300},
+  {"ui_scale": 1.0}, {"sleep": 500}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"action": "ToggleLayers"}, {"sleep": 800},
+  {"expect": {"image_fit": true, "handles_visible": true}},
+  {"shot": "${OUT}/dpi-100.png"},
+  {"ui_scale": 1.25}, {"sleep": 700}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"shot": "${OUT}/dpi-125.png"},
+  {"ui_scale": 1.5}, {"sleep": 700}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"shot": "${OUT}/dpi-150.png"},
+  {"ui_scale": 2.0}, {"sleep": 700}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"shot": "${OUT}/dpi-200.png"},
+  {"action": "ToggleTools"}, {"sleep": 800}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"action": "ToggleLayers"}, {"sleep": 800}, {"expect": {"image_fit": true, "handles_visible": true}},
+  {"shot": "${OUT}/dpi-200-closed.png"},
+  {"ui_scale": 1.25}, {"sleep": 700}, {"expect": {"image_fit": true, "handles_visible": true}}
+]

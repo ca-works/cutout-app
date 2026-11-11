@@ -178,7 +178,7 @@ mod win {
     pub fn write(img: &Image, format: Format) -> Result<(), String> {
         // Prepare everything before touching the clipboard so a failure never empties it.
         let png_fmt = register("PNG");
-        let main = codec::encode(img, format)?;
+        let main = codec::encode_for(img, format, codec::Purpose::Clipboard)?;
         let (dib5, dib) = if format == Format::Jpeg {
             let flat = img.flattened([255, 255, 255]);
             (dibv5(&flat), dib_flat(&flat))

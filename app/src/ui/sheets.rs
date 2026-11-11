@@ -25,7 +25,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             Sheet::ModelSetup => model_setup(app, ui, &mut close, &mut after),
             Sheet::Resize(r) => resize(app, ui, r, &mut close),
             Sheet::Text(t) => text_sheet(app, ui, t, &mut close),
-            Sheet::LowMemory { mode, avail_gb } => low_memory(app, ui, *mode, *avail_gb, &mut close, &mut after),
+            Sheet::LowMemory { mode, avail_gb, need_gb } => low_memory(app, ui, *mode, *avail_gb, *need_gb, &mut close, &mut after),
             Sheet::JpegWarning { action, dont_ask } => jpeg_warning(app, ui, *action, dont_ask, &mut close, &mut after),
             Sheet::Settings => settings(app, ui, &mut close),
             Sheet::About => about(app, ui, &mut close),
@@ -62,7 +62,7 @@ fn model_setup(app: &mut App, ui: &mut Ui, close: &mut bool, after: &mut After) 
     });
     let best = models::best_spec(&app.settings.best_model);
     let uses = match &best {
-        Some((s, _)) => format!("ONNX Runtime · {} ({})", if app.settings.use_directml && cutout_core::ai::accel_available(cutout_core::ai::Accel::DirectMl) { "DirectML" } else { "CPU" }, s.title),
+        Some((s, _)) => format!("ONNX Runtime · {} ({})", if crate::models::gpu_candidate(app.settings.use_directml, &app.settings.best_model).is_some() { "DirectML" } else { "CPU" }, s.title),
         None => "None installed — download or install a model below".to_string(),
     };
     ui.horizontal(|ui| {
@@ -80,8 +80,13 @@ fn model_setup(app: &mut App, ui: &mut Ui, close: &mut bool, after: &mut After) 
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new("GPU acceleration (DirectML) — experimental").font(FontId::new(13.5, theme::semibold_family())));
-                    ui.label(small(p, "Uses any DirectX 12 GPU. Falls back to the CPU automatically. Results can differ slightly from the CPU path."));
+                    ui.label(egui::RichText::new("GPU acceleration (DirectML)").font(FontId::new(13.5, theme::semibold_family())));
+                    let hint = match crate::platform::gpu::high_performance_adapter() {
+                        Some(a) if crate::platform::gpu::suitable_for_model() => format!("{} — used automatically; falls back to the CPU if anything goes wrong.", a.name),
+                        Some(a) => format!("{} has too little dedicated video memory for this model, so the CPU is used.", a.name),
+                        None => "No DirectX 12 graphics adapter found, so the CPU is used.".to_string(),
+                    };
+                    ui.label(small(p, hint));
                 });
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui.checkbox(&mut app.settings.use_directml, "Use").changed() {
@@ -91,7 +96,7 @@ fn model_setup(app: &mut App, ui: &mut Ui, close: &mut bool, after: &mut After) 
             });
         });
     }
-    ui.label(egui::RichText::new("ONNX models (CPU — runs on any PC)").font(FontId::new(14.5, theme::semibold_family())));
+    ui.label(egui::RichText::new("Models").font(FontId::new(14.5, theme::semibold_family())));
     for spec in models::ALL.iter() {
         model_row(app, ui, spec);
     }
@@ -167,6 +172,8 @@ fn model_row(app: &mut App, ui: &mut Ui, spec: &'static models::ModelSpec) {
                         cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
+            } else if !spec.downloadable() {
+                ui.label(small(p, "Ships with the full installer"));
             } else if small_button(ui, p, "Download", !busy).clicked() {
                 app.start_download(spec);
             }
@@ -302,7 +309,7 @@ fn text_sheet(app: &mut App, ui: &mut Ui, t: &mut crate::app::TextSheet, close: 
 
 // ------------------------------------------------------------ low memory ---
 
-fn low_memory(app: &mut App, ui: &mut Ui, mode: RemovalMode, avail_gb: f64, close: &mut bool, after: &mut After) {
+fn low_memory(app: &mut App, ui: &mut Ui, mode: RemovalMode, avail_gb: f64, need_gb: f64, close: &mut bool, after: &mut After) {
     let p = app.palette;
     ui.set_width(480.0);
     ui.spacing_mut().item_spacing.y = 10.0;
@@ -310,7 +317,7 @@ fn low_memory(app: &mut App, ui: &mut Ui, mode: RemovalMode, avail_gb: f64, clos
         ui.label(icon(icons::TRIANGLE_ALERT, 18.0).color(Color32::from_rgb(255, 159, 10)));
         title(ui, "Not much free memory");
     });
-    ui.label(secondary(p, format!("Best Quality removal needs about 10 GB of free memory and this PC has {avail_gb:.1} GB available right now. Windows may become slow while it runs, or the removal may fail.")));
+    ui.label(secondary(p, format!("Best Quality removal needs about {need_gb:.0} GB of free memory and this PC has {avail_gb:.1} GB available right now. Windows may become slow while it runs, or the removal may fail.")));
     ui.label(small(p, "Closing other programs frees memory. BiRefNet Lite needs far less and is a little less precise on holes and low-contrast edges."));
     let lite = models::installed_path(&models::BIREFNET_LITE).is_some();
     ui.horizontal(|ui| {
@@ -402,7 +409,7 @@ fn settings(app: &mut App, ui: &mut Ui, close: &mut bool) {
     ui.separator();
     ui.label(egui::RichText::new("AI models").font(FontId::new(14.0, theme::semibold_family())));
     if cutout_core::ai::accel_available(cutout_core::ai::Accel::DirectMl) {
-        if ui.checkbox(&mut app.settings.use_directml, "Use the GPU (DirectML) when available — experimental").changed() {
+        if ui.checkbox(&mut app.settings.use_directml, "Use the GPU (DirectML) when available (falls back to the CPU automatically)").changed() {
             models::unload();
         }
     }

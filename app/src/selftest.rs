@@ -12,7 +12,7 @@
 use crate::app::{Action, App, CopyAction, Tool};
 use crate::codec::Format;
 use crate::models::RemovalMode;
-use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2};
+use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, Rect, Vec2};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -27,6 +27,9 @@ pub struct Script {
     shot_path: Option<PathBuf>,
     result_path: Option<PathBuf>,
     started: std::time::Instant,
+    retries: u32,
+    first_failure: Vec<Value>,
+    first_step: usize,
 }
 
 impl Script {
@@ -41,7 +44,7 @@ impl Script {
             }
         }
         let steps: Vec<Value> = serde_json::from_str(&text).ok()?;
-        Some(Script { steps, idx: 0, wait: 3, sleep_until: None, pending: vec![], log: vec![], failed: false, shot_path: None, result_path: std::env::var_os("CUTOUT_SCRIPT_RESULT").map(PathBuf::from), started: std::time::Instant::now() })
+        Some(Script { steps, idx: 0, wait: 3, sleep_until: None, pending: vec![], log: vec![], failed: false, shot_path: None, result_path: std::env::var_os("CUTOUT_SCRIPT_RESULT").map(PathBuf::from), started: std::time::Instant::now(), retries: 0, first_failure: vec![], first_step: 0 })
     }
 }
 
@@ -111,6 +114,13 @@ impl App {
     pub fn script_inject(&mut self, raw: &mut egui::RawInput) {
         if let Some(s) = &mut self.script {
             raw.events.append(&mut s.pending);
+        }
+    }
+
+    /// Record an informational entry in the script result log (not a failure).
+    pub fn script_note(&mut self, v: Value) {
+        if let Some(s) = &mut self.script {
+            s.log.push(v);
         }
     }
 
@@ -198,6 +208,49 @@ impl App {
                 problems.push(format!("show_layers: expected {b}"));
             }
         }
+        if e.get("image_fit").and_then(Value::as_bool) == Some(true) {
+            // The whole image sits inside the visible canvas, centred, with padding, at its own aspect ratio.
+            let c = &self.canvas;
+            // (the fit target is the document, grown to the active layer's transform box when it sticks out)
+            let b = c.bounds();
+            let r = Rect::from_min_size(c.rect.min + c.offset + b.min.to_vec2() * c.scale, b.size() * c.scale);
+            let dc = (r.center() - c.rect.center()).length();
+            let inside = c.rect.contains_rect(r);
+            let ar = (r.width() / r.height()) / (b.width() / b.height());
+            if !inside || dc > 1.0 || (ar - 1.0).abs() > 1e-3 || !c.fitted {
+                problems.push(format!("image_fit: inside={inside} centre_off={dc:.2} aspect={ar:.4} fitted={} anim={} img={:?} canvas={:?} ", c.fitted, c.has_anim(), r, c.rect));
+            }
+        }
+        if e.get("handles_visible").and_then(Value::as_bool) == Some(true) {
+            // every corner of the active layer's box, and its rotation handle, is inside the canvas
+            match self.active_quad() {
+                Some(q) => {
+                    let rh = App::rotate_handle(&q);
+                    let bad: Vec<_> = q.iter().chain(std::iter::once(&rh)).filter(|p| !self.canvas.rect.contains(**p)).collect();
+                    if !bad.is_empty() {
+                        problems.push(format!("handles_visible: {} handle(s) outside canvas {:?}: {:?}", bad.len(), self.canvas.rect, bad));
+                    }
+                }
+                None => problems.push("handles_visible: no active layer".into()),
+            }
+        }
+        if let Some(t) = e.get("layer_transform") {
+            // {"index": i, "x":..,"y":..,"scale_x":..,"scale_y":..,"rotation":..} — document-space transform must be unchanged
+            let i = t.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+            match st.layers.get(i) {
+                Some(l) => {
+                    let g = l.transform;
+                    for (k, got) in [("x", g.x), ("y", g.y), ("scale_x", g.scale_x), ("scale_y", g.scale_y), ("rotation", g.rotation)] {
+                        if let Some(want) = t.get(k).and_then(Value::as_f64) {
+                            if (got - want).abs() > t.get("tol").and_then(Value::as_f64).unwrap_or(1e-9) {
+                                problems.push(format!("layer {i} {k}: expected {want}, got {got}"));
+                            }
+                        }
+                    }
+                }
+                None => problems.push(format!("layer_transform: no layer {i}")),
+            }
+        }
         if let Some(b) = e.get("sheet").and_then(Value::as_bool) {
             if self.sheet.is_some() != b {
                 problems.push(format!("sheet open: expected {b}"));
@@ -262,7 +315,7 @@ impl App {
             return;
         }
         // Don't advance while a background removal / model task is running.
-        if self.removal.is_some() || self.model_task.is_some() {
+        if self.removal.is_some() || self.model_task.is_some() || self.export_job.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
             return;
         }
@@ -293,6 +346,12 @@ impl App {
                 let p = PathBuf::from(v.as_str().unwrap_or(""));
                 let as_layers = !self.is_empty();
                 self.open_paths(&[p], as_layers);
+            }
+            "resize" => {
+                // {"resize": [w, h]} — inner window size in points
+                let a = v.as_array().cloned().unwrap_or_default();
+                let sz = Vec2::new(a.first().and_then(Value::as_f64).unwrap_or(1000.0) as f32, a.get(1).and_then(Value::as_f64).unwrap_or(700.0) as f32);
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(sz));
             }
             "paste" => self.perform(Action::Paste),
             "tool" => match Tool::from_id(v.as_str().unwrap_or("")) {
@@ -347,6 +406,30 @@ impl App {
                     s.wait = 3;
                 }
             }
+            "ui_scale" => {
+                // Emulate another Windows display scale: effective pixels-per-point = native * factor.
+                // {"ui_scale": 1.25} means 125 % of 100 % DPI; the hook converts using the native ppp.
+                let target = v.as_f64().unwrap_or(1.0) as f32;
+                let native = ctx.native_pixels_per_point().unwrap_or(1.0);
+                ctx.set_zoom_factor(target / native);
+                if let Some(s) = &mut self.script {
+                    s.wait = 6;
+                }
+            }
+            "drag_image" => {
+                // like "drag", but points are image (document) pixels, mapped through the live view transform
+                let pts: Vec<Pos2> = v.as_array().cloned().unwrap_or_default().iter().filter_map(|p| p.as_array().map(|a| self.canvas.image_to_view((a[0].as_f64().unwrap_or(0.0), a[1].as_f64().unwrap_or(0.0))))).collect();
+                if let (Some(s), Some(first)) = (&mut self.script, pts.first().copied()) {
+                    s.pending.push(Event::PointerMoved(first));
+                    s.pending.push(Event::PointerButton { pos: first, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+                    for p in pts.iter().skip(1) {
+                        s.pending.push(Event::PointerMoved(*p));
+                    }
+                    let last = *pts.last().unwrap();
+                    s.pending.push(Event::PointerButton { pos: last, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+                    s.wait = 4;
+                }
+            }
             "key" => {
                 let name = v.as_str().unwrap_or("");
                 let m = obj.get("mods").and_then(Value::as_str).map(mods).unwrap_or(Modifiers::NONE);
@@ -384,7 +467,36 @@ impl App {
                     c2.request_repaint();
                 })));
             }
-            "expect" => self.script_expect(v),
+            "expect" => {
+                // View-geometry expectations may need a few frames to settle (panel slide, window resize),
+                // so a failing one is retried for up to ~2 s before it counts. A late success is logged.
+                let view = v.get("image_fit").is_some() || v.get("handles_visible").is_some();
+                let (was_failed, log_len) = self.script.as_ref().map(|s| (s.failed, s.log.len())).unwrap_or((false, 0));
+                self.script_expect(v);
+                if let Some(s) = &mut self.script {
+                    let newly_failed = s.failed && !was_failed;
+                    // CUTOUT_NO_RETRY=1 disables the retry so any transient mismatch fails the run.
+                    if view && newly_failed && s.retries < 40 && std::env::var_os("CUTOUT_NO_RETRY").is_none() {
+                        if s.retries == 0 {
+                            // keep the first failure so a retry can never hide it
+                            s.first_failure = s.log.get(log_len..).map(|l| l.to_vec()).unwrap_or_default();
+                            s.first_step = s.idx;
+                        }
+                        s.failed = false;
+                        s.log.truncate(log_len);
+                        s.idx -= 1;
+                        s.retries += 1;
+                        s.sleep_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(50));
+                        s.log.pop();
+                    } else {
+                        if s.retries > 0 && !newly_failed {
+                            let n = s.retries;
+                            s.log.push(json!({"settled_after_polls": n, "step": s.first_step, "first_failure": s.first_failure}));
+                        }
+                        s.retries = 0;
+                    }
+                }
+            }
             "export" => {
                 let p = PathBuf::from(v.as_str().unwrap_or("out.png"));
                 match self.doc.export(false).ok_or("nothing to export".to_string()).and_then(|i| crate::codec::encode(&i, Format::Png)).and_then(|b| std::fs::write(&p, b).map_err(|e| e.to_string())) {

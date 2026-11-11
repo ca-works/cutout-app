@@ -17,6 +17,10 @@
 #ifndef Arch
   #define Arch "x64"
 #endif
+; Four-part number for the file-version resource (AppVersion may carry a "-preview.N" label).
+#ifndef VersionNumeric
+  #define VersionNumeric AppVersion + ".0"
+#endif
 ; File-name label used on the website and in SHA256SUMS.txt (x64 / ARM64).
 #if Arch == "arm64"
   #define ArchLabel "ARM64"
@@ -26,10 +30,7 @@
 #ifndef SourceDir
   #define SourceDir "..\dist\win-" + Arch
 #endif
-; Name of the AI model file inside {SourceDir}\Models (empty = no model bundled).
-#ifndef ModelFile
-  #define ModelFile ""
-#endif
+; Define BundleModels to install every file the build script staged in {SourceDir}\Models.
 
 [Setup]
 ; Never change the AppId: it is how upgrades and the uninstaller find an existing install.
@@ -45,8 +46,14 @@ DefaultDirName={autopf}\CutOut
 DefaultGroupName=CutOut
 DisableProgramGroupPage=yes
 DisableDirPage=auto
+; Per-user by default: the installer runs as the invoking user (asInvoker manifest), installs to
+; %LOCALAPPDATA%\Programs\CutOut and writes only HKCU. The "all users" choice is optional; only that choice
+; triggers the Windows elevation prompt. With UsePreviousPrivileges (the default) an upgrade uses the
+; privilege level of the existing installation, so a machine-wide install is upgraded in place (with the
+; standard Windows prompt) and never ends up duplicated next to a per-user copy.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=commandline dialog
+UsePreviousPrivileges=yes
 OutputDir=..\dist
 OutputBaseFilename=CutOut-Windows-{#ArchLabel}-Setup
 SetupIconFile=..\assets\icon\CutOut.ico
@@ -55,8 +62,9 @@ UninstallDisplayName=CutOut
 WizardStyle=modern
 Compression=lzma2/normal
 SolidCompression=no
-; Windows 10 version 1809 or later.
-MinVersion=10.0.17763
+; Windows 10 version 1903 (build 18362) or later: CutOut.exe imports DirectML.dll, which is part of
+; Windows from that version; earlier builds would fail to start it.
+MinVersion=10.0.18362
 #if Arch == "arm64"
 ArchitecturesAllowed=arm64
 ArchitecturesInstallIn64BitMode=arm64
@@ -68,13 +76,16 @@ CloseApplications=yes
 CloseApplicationsFilter=CutOut.exe
 RestartApplications=no
 ChangesAssociations=yes
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#VersionNumeric}
+VersionInfoCompany=CutOut
+VersionInfoCopyright=Copyright (C) CutOut contributors
+VersionInfoProductVersion={#VersionNumeric}
 VersionInfoProductName=CutOut
 VersionInfoDescription=CutOut setup
 SetupLogging=yes
 #ifdef SignTool
 ; Authenticode signing is optional and only active when the build supplies a
-; SignTool definition. Nothing is signed by default.
+; SignTool definition (see docs/WINDOWS_SECURITY.md). Nothing is signed by default.
 SignTool={#SignTool}
 SignedUninstaller=yes
 #endif
@@ -88,12 +99,23 @@ Name: "associate"; Description: "Open CutOut &project files (.cutout) with CutOu
 
 [Files]
 Source: "{#SourceDir}\CutOut.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Microsoft Visual C++ 2015-2022 runtime, app-local, so a PC without the redistributable can still start CutOut.
+Source: "{#SourceDir}\vcruntime140.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\vcruntime140_1.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\msvcp140.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#SourceDir}\msvcp140_1.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\LICENSES\*"; DestDir: "{app}\Licenses"; Flags: ignoreversion recursesubdirs
 Source: "..\README.md"; DestDir: "{app}"; DestName: "README.md"; Flags: ignoreversion
-#if ModelFile != ""
+#ifdef BundleModels
 ; Model weights are float data that do not compress; store them as they are (fast to build and install).
-Source: "{#SourceDir}\Models\{#ModelFile}"; DestDir: "{app}\Models"; Flags: ignoreversion nocompression
+Source: "{#SourceDir}\Models\*"; DestDir: "{app}\Models"; Flags: ignoreversion nocompression
 #endif
+
+[InstallDelete]
+; Model files shipped by earlier installers (1.4 GB). Removed before this version's files are copied, so an
+; upgrade does not keep models the new version no longer uses; files this installer ships are written again.
+Type: files; Name: "{app}\Models\birefnet-general-fp32.onnx"
+Type: files; Name: "{app}\Models\birefnet-general-fp16.onnx"
 
 [Icons]
 Name: "{autoprograms}\CutOut"; Filename: "{app}\CutOut.exe"; Comment: "Remove backgrounds and edit images"

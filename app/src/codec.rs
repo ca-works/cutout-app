@@ -114,11 +114,27 @@ impl Format {
     }
 }
 
+/// What an encoded image is for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Purpose {
+    /// A file the user keeps: smallest PNG.
+    File,
+    /// The clipboard: the data is temporary and Copy should feel instant, so PNG uses the fast
+    /// compressor. Lossless either way; measured 0.27 s instead of 4.2 s for a 36 MP cutout
+    /// (0.06 s instead of 0.56 s at 8 MP) for about a third more bytes.
+    Clipboard,
+}
+
 pub fn encode(img: &Image, format: Format) -> Result<Vec<u8>, String> {
+    encode_for(img, format, Purpose::File)
+}
+
+pub fn encode_for(img: &Image, format: Format, purpose: Purpose) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     match format {
         Format::Png => {
-            let enc = image::codecs::png::PngEncoder::new_with_quality(&mut out, image::codecs::png::CompressionType::Default, image::codecs::png::FilterType::Adaptive);
+            let compression = if purpose == Purpose::Clipboard { image::codecs::png::CompressionType::Fast } else { image::codecs::png::CompressionType::Default };
+            let enc = image::codecs::png::PngEncoder::new_with_quality(&mut out, compression, image::codecs::png::FilterType::Adaptive);
             image::ImageEncoder::write_image(enc, &img.data, img.width, img.height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
         }
         Format::Jpeg => {
@@ -146,6 +162,14 @@ mod tests {
     }
 
     #[test]
+    fn clipboard_png_is_lossless_too() {
+        let data: Vec<u8> = (0..64 * 64 * 4).map(|i| (i * 37 % 251) as u8).collect();
+        let img = Image { width: 64, height: 64, data };
+        let back = decode_bytes(&encode_for(&img, Format::Png, Purpose::Clipboard).unwrap()).unwrap();
+        assert_eq!(back.image.data, img.data);
+    }
+
+    #[test]
     fn jpeg_flattens_on_white() {
         let img = Image { width: 1, height: 1, data: vec![0, 0, 0, 0] };
         let bytes = encode(&img, Format::Jpeg).unwrap();
@@ -156,5 +180,25 @@ mod tests {
     #[test]
     fn garbage_is_rejected() {
         assert!(decode_bytes(b"not an image").is_err());
+    }
+}
+
+#[cfg(test)]
+mod perf {
+    use super::*;
+
+    /// Local measurement, not a regression test: `CUTOUT_PERF_IMAGE=<file> cargo test --release -p cutout-desktop codec::perf -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn codec_timings() {
+        let Some(p) = std::env::var_os("CUTOUT_PERF_IMAGE") else { return };
+        let t = std::time::Instant::now();
+        let d = decode_file(Path::new(&p)).unwrap();
+        println!("decode {}x{}: {:.0} ms", d.image.width, d.image.height, t.elapsed().as_secs_f64() * 1e3);
+        for (f, p) in [(Format::Png, Purpose::File), (Format::Png, Purpose::Clipboard), (Format::Jpeg, Purpose::File)] {
+            let t = std::time::Instant::now();
+            let b = encode_for(&d.image, f, p).unwrap();
+            println!("encode {} ({p:?}): {:.0} ms, {:.1} MB", f.label(), t.elapsed().as_secs_f64() * 1e3, b.len() as f64 / 1e6);
+        }
     }
 }

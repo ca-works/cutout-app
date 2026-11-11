@@ -16,9 +16,10 @@ Simple by default, powerful when needed: the tools sidebar (⌥⌘T) and layers
 inspector (⌥⌘L) stay hidden until you want them.
 
 > **Status:** v0.1 development build. **macOS:** Apple Silicon, macOS 14+,
-> ad-hoc signed, **not notarized**. **Windows:** Windows 10 (1809) / 11, x64 and
-> ARM64 — implemented and covered by automated tests, **not yet verified on real
-> Windows hardware and not code-signed** (see [docs/WINDOWS.md](docs/WINDOWS.md)).
+> ad-hoc signed, **not notarized**. **Windows:** Windows 10 (1903) / 11, x64 and
+> ARM64 — covered by automated tests and verified on a real Windows 11 x64 PC
+> (ARM64 is built but untested on hardware). The installer is **not
+> code-signed**, so SmartScreen may warn (see [docs/WINDOWS.md](docs/WINDOWS.md)).
 > Licensed under the [MIT License](LICENSE).
 
 ![CutOut with several layers: a rotated photo, text, an arrow and an erased gear](docs/images/screenshot-layers.png)

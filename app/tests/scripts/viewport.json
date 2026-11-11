@@ -1,0 +1,50 @@
+[
+  {"wait": 8},
+  {"open": "${DATA}/vp-main.png"},
+  {"wait": 6}, {"sleep": 400},
+  {"expect": {"empty": false, "image_fit": true}},
+
+  {"action": "ToggleTools"}, {"sleep": 700},
+  {"expect": {"show_tools": true, "image_fit": true}},
+  {"shot": "${OUT}/vp-1-tools.png"},
+  {"action": "ToggleTools"}, {"sleep": 700},
+  {"expect": {"show_tools": false, "image_fit": true}},
+
+  {"action": "ToggleLayers"}, {"sleep": 700},
+  {"expect": {"show_layers": true, "image_fit": true}},
+  {"shot": "${OUT}/vp-2-layers.png"},
+  {"action": "ToggleLayers"}, {"sleep": 700},
+  {"expect": {"show_layers": false, "image_fit": true}},
+
+  {"action": "ToggleTools"}, {"action": "ToggleLayers"}, {"sleep": 800},
+  {"expect": {"show_tools": true, "show_layers": true, "image_fit": true}},
+  {"shot": "${OUT}/vp-3-both.png"},
+
+  {"action": "ToggleTools"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleLayers"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleLayers"}, {"sleep": 700}, {"expect": {"image_fit": true}},
+  {"action": "ToggleTools"}, {"action": "ToggleLayers"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+
+  {"action": "ZoomIn"}, {"sleep": 500},
+  {"action": "ToggleTools"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+
+  {"resize": [900, 620]}, {"sleep": 800},
+  {"expect": {"image_fit": true}},
+  {"shot": "${OUT}/vp-4-resized.png"},
+  {"resize": [1300, 860]}, {"sleep": 800},
+  {"expect": {"image_fit": true}},
+
+  {"open": "${DATA}/vp-second.png"},
+  {"wait": 6}, {"sleep": 400},
+  {"expect": {"layers": 2}},
+  {"action": "ToggleLayers"}, {"sleep": 700},
+  {"expect": {"image_fit": true}},
+  {"shot": "${OUT}/vp-5-layers2.png"}
+]
+

@@ -5,6 +5,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+directml = ["cutout-core/directml"]
+
 [dependencies]
 cutout-core = { path = "../../core" }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }

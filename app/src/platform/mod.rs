@@ -1,6 +1,7 @@
 //! Operating-system integration. Everything outside this module is portable.
 
 pub mod clipboard;
+pub mod gpu;
 pub mod paths;
 pub mod sysinfo;
 

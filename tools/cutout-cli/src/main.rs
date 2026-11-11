@@ -6,7 +6,12 @@
 //! cutout-cli remove <model.onnx> <input> <output.png> [cpu|coreml]
 //! cutout-cli matte <cutout.png> <matte.png>          alpha channel → small greyscale PNG (golden mattes)
 //! cutout-cli parity <images> <preds> <tag> <golden-dir> [max-mae] [min-iou]   compare against golden mattes (exit 1 on failure)
+//! cutout-cli pre <image> <out.f32> <iw> <ih>         the exact network input the app builds (planar f32, little endian)
+//! cutout-cli post <image> <probs.f32> <iw> <ih> <out.png> [--no-refine]   the app's post-processing on an external network output
 //! ```
+//!
+//! `pre` / `post` let a network that runs outside ONNX Runtime (PyTorch, another
+//! runtime) be evaluated with exactly the pre- and post-processing the app uses.
 
 use cutout_core::ai::{Accel, Model, PredictOptions};
 use std::path::{Path, PathBuf};
@@ -21,6 +26,8 @@ fn main() {
         Some("matte") if args.len() >= 4 => matte(Path::new(&args[2]), Path::new(&args[3])),
         Some("parity") if args.len() >= 6 => parity(Path::new(&args[2]), Path::new(&args[3]), &args[4], Path::new(&args[5]), args.get(6).and_then(|v| v.parse().ok()).unwrap_or(0.004), args.get(7).and_then(|v| v.parse().ok()).unwrap_or(0.998)),
         Some("perf") => perf(args.get(2).map(|s| s.as_str())),
+        Some("pre") if args.len() >= 6 => pre(Path::new(&args[2]), Path::new(&args[3]), &args[4], &args[5]),
+        Some("post") if args.len() >= 7 => post(Path::new(&args[2]), Path::new(&args[3]), &args[4], &args[5], Path::new(&args[6]), !args.iter().any(|a| a == "--no-refine")),
         Some("remove") if args.len() >= 5 => remove(&args[2], &args[3], &args[4], args.get(5).map(|s| s.as_str()).unwrap_or("coreml")),
         _ => Err("usage: cutout-cli synth <dir> | bench <model> <cpu|coreml> <images> <out> [--no-refine] | remove <model> <in> <out> [accel] | score <images> <preds> <tag> [ref_tag]".into()),
     };
@@ -33,6 +40,8 @@ fn main() {
 fn accel(s: &str) -> Accel {
     if s == "cpu" {
         Accel::Cpu
+    } else if s == "directml" {
+        Accel::DirectMl
     } else if s == "coreml-nn" {
         Accel::CoreMlNeuralNetwork
     } else {
@@ -62,6 +71,41 @@ fn remove(model: &str, input: &str, output: &str, acc: &str) -> Result<(), Strin
     image::save_buffer(output, &out, w, h, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
     println!("load {} ms, inference {} ms, post {} ms", m.load_ms, t.inference_ms, t.postprocess_ms);
     Ok(())
+}
+
+fn dims(iw: &str, ih: &str) -> Result<(usize, usize), String> {
+    let p = |v: &str| v.parse::<usize>().ok().filter(|&n| (32..=8192).contains(&n)).ok_or_else(|| format!("bad network size {v}"));
+    Ok((p(iw)?, p(ih)?))
+}
+
+/// Write the network input for `image` (see `cutout_core::ai::preprocess`) as raw little-endian f32.
+fn pre(image: &Path, out: &Path, iw: &str, ih: &str) -> Result<(), String> {
+    let (iw, ih) = dims(iw, ih)?;
+    let (rgba, w, h) = load_rgba(image)?;
+    let t0 = Instant::now();
+    let t = cutout_core::ai::preprocess(&rgba, w, h, iw, ih)?;
+    eprintln!("preprocess {w}x{h} -> {iw}x{ih}: {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);
+    let bytes: Vec<u8> = t.iter().flat_map(|v| v.to_le_bytes()).collect();
+    std::fs::write(out, bytes).map_err(|e| e.to_string())
+}
+
+/// Turn an external network output (`iw`×`ih` raw f32, logits or probabilities) into the cutout the app would produce.
+fn post(image: &Path, probs: &Path, iw: &str, ih: &str, out: &Path, refine: bool) -> Result<(), String> {
+    let (iw, ih) = dims(iw, ih)?;
+    let (rgba, w, h) = load_rgba(image)?;
+    let raw = std::fs::read(probs).map_err(|e| format!("{}: {e}", probs.display()))?;
+    if raw.len() != iw * ih * 4 {
+        return Err(format!("{}: expected {} bytes, found {}", probs.display(), iw * ih * 4, raw.len()));
+    }
+    let p: Vec<f32> = raw.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    let t0 = Instant::now();
+    let alpha = cutout_core::ai::postprocess(&p, iw, ih, &rgba, w, h, refine);
+    eprintln!("postprocess {iw}x{ih} -> {w}x{h}: {:.0} ms", t0.elapsed().as_secs_f64() * 1000.0);
+    let mut cut = rgba;
+    for (px, a) in cut.chunks_exact_mut(4).zip(alpha.iter()) {
+        px[3] = *a;
+    }
+    image::save_buffer(out, &cut, w, h, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------- synthetic
@@ -248,7 +292,7 @@ fn bench(model: &str, acc: &str, images: &Path, out: &Path, refine: bool) -> Res
             px[3] = *a;
         }
         image::save_buffer(out.join(format!("{name}__{mname}_{acc}.png")), &cut, w, h, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
-        let mut row = serde_json::json!({"image": name, "w": w, "h": h, "total_ms": total, "inference_ms": tm.inference_ms, "post_ms": tm.postprocess_ms});
+        let mut row = serde_json::json!({"image": name, "w": w, "h": h, "total_ms": total, "pre_ms": tm.preprocess_ms, "inference_ms": tm.inference_ms, "post_ms": tm.postprocess_ms});
         if let Some(g) = gt_path.filter(|g| g.is_file()) {
             let gimg = image::open(&g).map_err(|e| e.to_string())?.to_luma8();
             let (mae, iou, edge) = metrics(&alpha, gimg.as_raw(), w as usize, h as usize);
