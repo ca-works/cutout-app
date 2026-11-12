@@ -80,6 +80,8 @@ fn action_named(n: &str) -> Option<Action> {
         "InvertSelection" => Action::InvertSelection,
         "CropToSelection" => Action::CropToSelection,
         "KeepOnlySelection" => Action::KeepOnlySelection,
+        "RemoveBgConventional" => Action::RemoveBgConventional,
+        "ConfirmClearWorkspace" => Action::ConfirmClearWorkspace,
         "RemoveBg" => Action::RemoveBg(RemovalMode::Best),
         "RemoveBgFast" => Action::RemoveBg(RemovalMode::Fast),
         "Compare" => Action::Compare,

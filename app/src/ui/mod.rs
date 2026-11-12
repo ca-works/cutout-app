@@ -28,6 +28,17 @@ pub fn root(app: &mut App, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     Panel::top("menubar").exact_size(28.0).frame(chrome).show_separator_line(false).show(ui, |ui| menubar(app, ui));
     Panel::top("toolbar").exact_size(52.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(10, 0))).show(ui, |ui| toolbar(app, ui));
     if !empty {
+        Panel::top("background_actions").exact_size(42.0)
+            .frame(egui::Frame::new().fill(p.chrome)).show(ui, |ui| {
+                ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(((ui.available_width() - 440.0) / 2.0).max(0.0));
+                        if let Some(action) = background_buttons(ui, p, app.enabled(&Action::RemoveBgConventional), app.reduce_motion) {
+                            app.perform(action);
+                        }
+                    });
+                });
+            });
         Panel::bottom("status").exact_size(28.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(14, 0))).show(ui, |ui| status_bar(app, ui));
     }
 
@@ -120,8 +131,9 @@ fn menubar(app: &mut App, ui: &mut egui::Ui) {
             menu_item(ui, app, "Delete Selected Pixels", Action::DeleteSelection);
         });
         ui.menu_button("Image", |ui| {
-            menu_item(ui, app, "Remove Background", Action::RemoveBg(RemovalMode::Best));
-            menu_item(ui, app, "Remove Background (Fast)", Action::RemoveBg(RemovalMode::Fast));
+            menu_item(ui, app, "Remove Background", Action::RemoveBgConventional);
+            menu_item(ui, app, "AI Remove Background", Action::RemoveBg(RemovalMode::Best));
+            menu_item(ui, app, "AI Remove Background (Lite)", Action::RemoveBg(RemovalMode::Fast));
             menu_item(ui, app, "Refine Edges…", Action::RefineEdges);
             menu_item(ui, app, "Compare Before / After", Action::Compare);
             ui.separator();
@@ -214,21 +226,6 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
     if !empty {
         ui.scope_builder(UiBuilder::new().max_rect(center).layout(Layout::centered_and_justified(egui::Direction::LeftToRight)), |ui| {
             ui.horizontal_centered(|ui| {
-                let removing = app.is_removing();
-                let r = prominent_button(ui, app.palette, icons::WAND_SPARKLES, "Remove Background", !removing).on_hover_text("Remove the background with the best-quality local AI model (Ctrl+B)");
-                if r.clicked() {
-                    app.perform(Action::RemoveBg(RemovalMode::Best));
-                }
-                r.context_menu(|ui| {
-                    if ui.button("Best Quality").clicked() {
-                        app.perform(Action::RemoveBg(RemovalMode::Best));
-                        ui.close();
-                    }
-                    if ui.button("Fast").clicked() {
-                        app.perform(Action::RemoveBg(RemovalMode::Fast));
-                        ui.close();
-                    }
-                });
                 let resp = icon_button(ui, app.palette, icons::CHEVRON_DOWN, "Removal mode and edge refinement", true, false);
                 egui::Popup::menu(&resp).show(|ui| {
                     if ui.button("Best Quality (BiRefNet)").clicked() {
@@ -577,3 +574,70 @@ fn trim_alpha(img: image::RgbaImage) -> image::RgbaImage {
 
 #[allow(dead_code)]
 fn _keep(_: PanelKind) {}
+
+/// Shared by the real action row and headless pointer-routing tests.
+fn background_buttons(ui: &mut egui::Ui, palette: theme::Palette, enabled: bool, reduce_motion: bool) -> Option<Action> {
+    let regular = prominent_button(ui, palette, icons::WAND_SPARKLES, "Remove Background", enabled);
+    let ai = prominent_button(ui, palette, icons::SPARKLES, "AI Remove Background", enabled);
+    ai_removal_tooltip(ui.ctx(), &ai, reduce_motion);
+    if regular.clicked() { Some(Action::RemoveBgConventional) }
+    else if ai.clicked() { Some(Action::RemoveBg(RemovalMode::Best)) }
+    else { None }
+}
+
+#[cfg(test)]
+mod background_button_tests {
+    use super::*;
+    fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                egui::Shape::Vec(v) => for s in v { collect(s,out); },
+                _ => {}
+            }
+        }
+        let mut out=vec![]; for s in shapes { collect(&s.shape,&mut out); } out
+    }
+    #[test]
+    fn actual_buttons_route_and_only_ai_has_tooltip_in_both_themes() {
+        for (dark, top_space) in [(false,0.0),(false,70.0),(true,0.0),(true,70.0)] {
+            let ctx=egui::Context::default();
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx);
+            ctx.set_theme(if dark { egui::ThemePreference::Dark } else { egui::ThemePreference::Light });
+            let mut tick=0.0;
+            let mut frame=|pointer: egui::Pos2, click: bool, enabled: bool| {
+                tick+=1.0;
+                let mut input=egui::RawInput { time:Some(tick), ..Default::default() };
+                input.viewports.entry(egui::ViewportId::ROOT).or_default().inner_rect=Some(Rect::from_min_size(Pos2::ZERO,Vec2::new(700.0,460.0)));
+                input.events.push(egui::Event::PointerMoved(pointer));
+                if click {
+                    for pressed in [true,false] { input.events.push(egui::Event::PointerButton { pos:pointer,button:egui::PointerButton::Primary,pressed,modifiers:egui::Modifiers::NONE }); }
+                }
+                let mut action=None;
+                let mut output=ctx.run_ui(input,|ui| {
+                    egui::CentralPanel::default().show(ui,|ui| {
+                        ui.add_space(top_space);
+                        ui.horizontal(|ui| { action=background_buttons(ui,theme::Palette::get(dark),enabled,false); });
+                    });
+                });
+                let labels=texts(&output.shapes);
+                output.textures_delta.clear(); // Headless test has no renderer to consume texture updates.
+                (action,labels)
+            };
+            frame(Pos2::ZERO,false,true);
+            assert_eq!(frame(Pos2::new(50.0,top_space+20.0),true,true).0,Some(Action::RemoveBgConventional));
+            let (_,regular)=frame(Pos2::new(50.0,top_space+20.0),false,true);
+            assert!(!regular.iter().any(|t| t=="Slower, but better for complex images"));
+            assert_eq!(frame(Pos2::new(300.0,top_space+20.0),true,true).0,Some(Action::RemoveBg(RemovalMode::Best)));
+            frame(Pos2::new(300.0,top_space+20.0),false,true);
+            let (_,ai)=frame(Pos2::new(300.0,top_space+20.0),false,true);
+            assert!(ai.iter().any(|t| t=="Slower, but better for complex images"));
+            frame(Pos2::new(50.0,top_space+20.0),false,true);
+            let (_,left)=frame(Pos2::new(50.0,top_space+20.0),false,true);
+            assert!(!left.iter().any(|t| t=="Slower, but better for complex images"));
+            assert_eq!(frame(Pos2::new(50.0,top_space+20.0),true,false).0,None);
+            assert_eq!(frame(Pos2::new(300.0,top_space+20.0),true,false).0,None);
+        }
+    }
+}

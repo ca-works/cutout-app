@@ -43,7 +43,7 @@
   {"wait": 4},
 
   {"run": {"cmd": "save_project", "path": "${OUT}/smoke project ü.cutout"}},
-  {"action": "ClearWorkspace"}, {"expect": {"empty": true}},
+  {"action": "ClearWorkspace"}, {"action": "ConfirmClearWorkspace"}, {"expect": {"empty": true}},
   {"run": {"cmd": "open_project", "path": "${OUT}/smoke project ü.cutout"}},
   {"wait": 3},
   {"expect": {"empty": false, "layers": 1}},
