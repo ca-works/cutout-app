@@ -35,7 +35,7 @@ $ErrorActionPreference = "Stop"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 if (-not $Version) {
-  $m = Select-String -Path (Join-Path $root "Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+  $m = Select-String -Path (Join-Path $root "app\Cargo.toml") -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
   $Version = $m.Matches[0].Groups[1].Value
 }
 $triple = if ($Arch -eq "arm64") { "aarch64-pc-windows-msvc" } else { "x86_64-pc-windows-msvc" }

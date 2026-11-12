@@ -1102,7 +1102,8 @@ impl App {
             item(ui, "Copy", Action::Copy(CopyAction::Copy, None));
             item(ui, "Paste as Layer", Action::Paste);
             ui.separator();
-            item(ui, "Remove Background", Action::RemoveBg(crate::models::RemovalMode::Best));
+            item(ui, "Remove Background", Action::RemoveFlatBackground);
+            item(ui, "AI Remove Background", Action::RemoveBg(crate::models::RemovalMode::Best));
             if has_sel {
                 item(ui, "Delete Selected Pixels", Action::DeleteSelection);
                 item(ui, "Keep Only Selection", Action::KeepOnlySelection);

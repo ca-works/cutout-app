@@ -8,6 +8,7 @@ mod app;
 mod canvas;
 mod codec;
 mod engine;
+mod flat_background;
 mod icons;
 mod models;
 mod selftest;

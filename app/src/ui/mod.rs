@@ -26,7 +26,8 @@ pub fn root(app: &mut App, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 
     let chrome = egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(8, 0));
     Panel::top("menubar").exact_size(28.0).frame(chrome).show_separator_line(false).show(ui, |ui| menubar(app, ui));
-    Panel::top("toolbar").exact_size(52.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(10, 0))).show(ui, |ui| toolbar(app, ui));
+    let stacked_toolbar = !empty && ui.available_width() < 1030.0;
+    Panel::top("toolbar").exact_size(if stacked_toolbar { 88.0 } else { 52.0 }).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(10, 0))).show(ui, |ui| toolbar(app, ui, stacked_toolbar));
     if !empty {
         Panel::bottom("status").exact_size(28.0).frame(egui::Frame::new().fill(p.chrome).inner_margin(egui::Margin::symmetric(14, 0))).show(ui, |ui| status_bar(app, ui));
     }
@@ -120,8 +121,8 @@ fn menubar(app: &mut App, ui: &mut egui::Ui) {
             menu_item(ui, app, "Delete Selected Pixels", Action::DeleteSelection);
         });
         ui.menu_button("Image", |ui| {
-            menu_item(ui, app, "Remove Background", Action::RemoveBg(RemovalMode::Best));
-            menu_item(ui, app, "Remove Background (Fast)", Action::RemoveBg(RemovalMode::Fast));
+            menu_item(ui, app, "Remove Background", Action::RemoveFlatBackground);
+            menu_item(ui, app, "AI Remove Background", Action::RemoveBg(RemovalMode::Best));
             menu_item(ui, app, "Refine Edges…", Action::RefineEdges);
             menu_item(ui, app, "Compare Before / After", Action::Compare);
             ui.separator();
@@ -183,18 +184,24 @@ fn menubar(app: &mut App, ui: &mut egui::Ui) {
 
 // -------------------------------------------------------------- toolbar ---
 
-fn toolbar(app: &mut App, ui: &mut egui::Ui) {
+fn toolbar(app: &mut App, ui: &mut egui::Ui, stacked: bool) {
     let rect = ui.max_rect();
+    let top = if stacked { rect.with_max_y(rect.min.y + 48.0) } else { rect };
     let empty = app.is_empty();
     let p = app.palette;
     let left_w = 250.0;
     let right_w = if empty { 40.0 } else { 300.0 };
-    let left = Rect::from_min_max(rect.min, Pos2::new(rect.min.x + left_w, rect.max.y));
-    let right = Rect::from_min_max(Pos2::new(rect.max.x - right_w, rect.min.y), rect.max);
-    let center = Rect::from_min_max(Pos2::new(left.max.x, rect.min.y), Pos2::new(right.min.x, rect.max.y));
+    let left = Rect::from_min_max(top.min, Pos2::new(top.min.x + left_w, top.max.y));
+    let right = Rect::from_min_max(Pos2::new(top.max.x - right_w, top.min.y), top.max);
+    let center = if stacked {
+        rect.with_min_y(top.max.y)
+    } else {
+        Rect::from_min_max(Pos2::new(left.max.x, rect.min.y), Pos2::new(right.min.x, rect.max.y))
+    };
 
     // title block
     ui.scope_builder(UiBuilder::new().max_rect(left).layout(Layout::left_to_right(Align::Center)), |ui| {
+        ui.set_clip_rect(left.intersect(ui.clip_rect()));
         if icon_button(ui, app.palette, icons::FOLDER_OPEN, "Open an image or project (Ctrl+O)", true, false).clicked() {
             app.perform(Action::Open);
         }
@@ -203,7 +210,7 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
             ui.vertical(|ui| {
                 ui.add_space(8.0);
                 ui.spacing_mut().item_spacing.y = 0.0;
-                ui.label(egui::RichText::new(app.suggested_name()).font(FontId::new(13.5, theme::semibold_family())).color(p.text));
+                ui.add(egui::Label::new(egui::RichText::new(app.suggested_name()).font(FontId::new(13.5, theme::semibold_family())).color(p.text)).truncate());
                 ui.label(small(app.palette, format!("{} × {}", app.state().width, app.state().height)));
             });
         } else {
@@ -214,21 +221,16 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
     if !empty {
         ui.scope_builder(UiBuilder::new().max_rect(center).layout(Layout::centered_and_justified(egui::Direction::LeftToRight)), |ui| {
             ui.horizontal_centered(|ui| {
-                let removing = app.is_removing();
-                let r = prominent_button(ui, app.palette, icons::WAND_SPARKLES, "Remove Background", !removing).on_hover_text("Remove the background with the best-quality local AI model (Ctrl+B)");
-                if r.clicked() {
-                    app.perform(Action::RemoveBg(RemovalMode::Best));
+                let flat = Action::RemoveFlatBackground;
+                let ai = Action::RemoveBg(RemovalMode::Best);
+                if prominent_button(ui, p, icons::WAND_SPARKLES, "Remove Background", app.enabled(&flat)).clicked() {
+                    app.perform(flat);
                 }
-                r.context_menu(|ui| {
-                    if ui.button("Best Quality").clicked() {
-                        app.perform(Action::RemoveBg(RemovalMode::Best));
-                        ui.close();
-                    }
-                    if ui.button("Fast").clicked() {
-                        app.perform(Action::RemoveBg(RemovalMode::Fast));
-                        ui.close();
-                    }
-                });
+                let response = soft_button(ui, p, Some(icons::SPARKLES), "AI Remove Background", app.enabled(&ai));
+                ai_tooltip(app, &response);
+                if response.clicked() {
+                    app.perform(ai);
+                }
                 let resp = icon_button(ui, app.palette, icons::CHEVRON_DOWN, "Removal mode and edge refinement", true, false);
                 egui::Popup::menu(&resp).show(|ui| {
                     if ui.button("Best Quality (BiRefNet)").clicked() {
@@ -276,6 +278,35 @@ fn toolbar(app: &mut App, ui: &mut egui::Ui) {
         });
     }
     let _ = (Align2::CENTER_CENTER, StrokeKind::Inside, CornerRadius::ZERO, Stroke::NONE, Sense::hover(), Color32::WHITE);
+}
+
+fn ai_tooltip(app: &App, response: &egui::Response) {
+    let id = response.id.with("ai-tooltip");
+    let hovered = response.hovered() && !response.is_pointer_button_down_on();
+    let opacity = if app.reduce_motion {
+        if hovered { 1.0 } else { 0.0 }
+    } else {
+        app.ctx.animate_bool_with_time(id, hovered, 0.15)
+    };
+    if opacity <= 0.0 {
+        return;
+    }
+
+    let p = app.palette;
+    let painter = app.ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, id));
+    let text = painter.layout_no_wrap(
+        "Slower, but better for complex images".into(),
+        FontId::proportional(12.0),
+        p.text.gamma_multiply(opacity),
+    );
+    let size = text.size() + Vec2::new(16.0, 8.0);
+    let screen = app.ctx.viewport_rect().shrink(4.0);
+    let x = (response.rect.center().x - size.x / 2.0).clamp(screen.left(), (screen.right() - size.x).max(screen.left()));
+    let above = response.rect.top() - size.y - 6.0;
+    let y = if above >= screen.top() { above } else { response.rect.bottom() + 6.0 };
+    let rect = Rect::from_min_size(Pos2::new(x, y + 3.0 * (1.0 - opacity)), size);
+    painter.rect(rect, 6, p.card.gamma_multiply(opacity), Stroke::new(1.0, p.card_stroke.gamma_multiply(opacity)), StrokeKind::Inside);
+    painter.galley(rect.min + Vec2::new(8.0, 4.0), text, p.text);
 }
 
 fn copy_button(app: &mut App, ui: &mut egui::Ui) {

@@ -369,6 +369,7 @@ pub enum Action {
     OpenProject,
     RestoreSession,
     ClearWorkspace,
+    RemoveFlatBackground,
     SaveProject,
     SaveProjectAs,
     Export(Format, f64),
@@ -443,6 +444,7 @@ pub fn shortcuts() -> Vec<(KeyboardShortcut, Action)> {
         (sc(c, Key::A), Action::SelectAll),
         (sc(c, Key::D), Action::Deselect),
         (sc(cs, Key::I), Action::InvertSelection),
+        (sc(ca, Key::B), Action::RemoveFlatBackground),
         (sc(cs, Key::B), Action::RemoveBg(RemovalMode::Fast)),
         (sc(c, Key::B), Action::RemoveBg(RemovalMode::Best)),
         (sc(c, Key::R), Action::Rotate(true)),
@@ -786,14 +788,23 @@ impl App {
         if save_recovery {
             self.save_recovery();
         }
-        self.cancel_removal();
-        let _ = self.doc.run("clear", json!({}));
+        if self.is_removing() {
+            self.cancel_removal();
+        }
+        if let Err(e) = self.doc.run("clear", json!({"undoable": true})) {
+            self.error_toast(&e);
+            return;
+        }
         self.project_path = None;
         self.compare_on = false;
-        self.canvas.set_compare(false, None);
+        self.canvas = CanvasState::new();
         self.panel = PanelKind::None;
         self.thumbs.clear();
         self.selected_layers.clear();
+        self.renaming = None;
+        self.layer_drag = None;
+        self.opacity_editing = false;
+        self.toast = None;
         self.refine = RefineState::default();
         self.adjust = AdjustState::default();
         self.refresh(true);
@@ -941,14 +952,24 @@ impl App {
     // -------------------------------------------------------------- undo ---
 
     pub fn undo(&mut self) {
+        let was_empty = self.is_empty();
         if self.doc.run("undo", json!({})).is_ok() {
             self.refresh(false);
+            if was_empty && !self.is_empty() {
+                self.canvas.zoom_to_fit(false);
+            }
         }
     }
 
     pub fn redo(&mut self) {
         if self.doc.run("redo", json!({})).is_ok() {
             self.refresh(false);
+            if self.is_empty() {
+                self.project_path = None;
+                self.compare_on = false;
+                self.canvas = CanvasState::new();
+                self.panel = PanelKind::None;
+            }
         }
     }
 
@@ -970,6 +991,23 @@ impl App {
 
     pub fn is_removing(&self) -> bool {
         self.removal.is_some()
+    }
+
+    fn remove_flat_background(&mut self) {
+        let Some(layer) = self.state().active_layer() else { return };
+        let id = layer.id;
+        let Some(pixels) = self.doc.eng.layer_rgba(id) else { return };
+        let started = Instant::now();
+        let result = crate::flat_background::mask(&pixels);
+        let mask_ms = started.elapsed().as_secs_f64() * 1000.0;
+        match result.and_then(|mask| self.doc.eng.intersect_layer_mask(id, mask, "Remove Background")) {
+            Ok(()) => {
+                self.refresh(false);
+                self.script_note(json!({"flat_mask_ms": mask_ms, "flat_update_ms": started.elapsed().as_secs_f64() * 1000.0}));
+                self.show_toast("Background removed", crate::icons::SPARKLES, false);
+            }
+            Err(e) => self.error_toast(&e),
+        }
     }
 
     pub fn remove_background(&mut self, mode: RemovalMode) {
@@ -1132,6 +1170,7 @@ impl App {
             Action::Redo => st.can_redo,
             Action::Deselect | Action::DeleteSelection | Action::KeepOnlySelection | Action::CropToSelection => st.has_selection,
             Action::RemoveBg(_) => !empty && !self.is_removing(),
+            Action::RemoveFlatBackground => !self.is_removing() && st.active_layer().is_some_and(|layer| !layer.is_text),
             Action::DeleteLayer | Action::MergeDown => st.layers.len() > 1,
             Action::RasterizeText => st.active_layer().map(|l| l.is_text).unwrap_or(false),
             _ => true,
@@ -1171,6 +1210,7 @@ impl App {
                 self.run("mask_from_selection", json!({}));
             }
             Action::RemoveBg(m) => self.remove_background(m),
+            Action::RemoveFlatBackground => self.remove_flat_background(),
             Action::RefineEdges => {
                 self.settings.show_tools = true;
                 self.panel = PanelKind::Refine;

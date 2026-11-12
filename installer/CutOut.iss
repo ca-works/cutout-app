@@ -77,9 +77,11 @@ CloseApplicationsFilter=CutOut.exe
 RestartApplications=no
 ChangesAssociations=yes
 VersionInfoVersion={#VersionNumeric}
+VersionInfoTextVersion={#AppVersion}
 VersionInfoCompany=CutOut
 VersionInfoCopyright=Copyright (C) CutOut contributors
 VersionInfoProductVersion={#VersionNumeric}
+VersionInfoProductTextVersion={#AppVersion}
 VersionInfoProductName=CutOut
 VersionInfoDescription=CutOut setup
 SetupLogging=yes
@@ -106,6 +108,7 @@ Source: "{#SourceDir}\msvcp140.dll"; DestDir: "{app}"; Flags: ignoreversion skip
 Source: "{#SourceDir}\msvcp140_1.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\LICENSES\*"; DestDir: "{app}\Licenses"; Flags: ignoreversion recursesubdirs
 Source: "..\README.md"; DestDir: "{app}"; DestName: "README.md"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 #ifdef BundleModels
 ; Model weights are float data that do not compress; store them as they are (fast to build and install).
 Source: "{#SourceDir}\Models\*"; DestDir: "{app}\Models"; Flags: ignoreversion nocompression

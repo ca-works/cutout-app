@@ -117,7 +117,7 @@ fn model_setup(app: &mut App, ui: &mut Ui, close: &mut bool, after: &mut After) 
             after.push(Box::new(|a: &mut App| a.remove_background(RemovalMode::Fast)));
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if models::has_best_model(&app.settings.best_model) && !app.is_empty() && primary_small(ui, p, "Remove Background", true).clicked() {
+            if models::has_best_model(&app.settings.best_model) && !app.is_empty() && primary_small(ui, p, "AI Remove Background", true).clicked() {
                 *close = true;
                 after.push(Box::new(|a: &mut App| a.remove_background(RemovalMode::Best)));
             }
@@ -481,10 +481,11 @@ fn shortcuts_sheet(app: &mut App, ui: &mut Ui, close: &mut bool) {
     ui.set_width(520.0);
     title(ui, "Keyboard shortcuts");
     ui.add_space(6.0);
-    let rows: [(&str, &str); 24] = [
+    let rows: [(&str, &str); 25] = [
         ("Paste (new layer) / as new image", "Ctrl+V / Ctrl+Alt+V"),
         ("Copy / Copy & Clear / Copy & Close", "Ctrl+C / Ctrl+Shift+C / Ctrl+Alt+C"),
-        ("Remove background / Fast", "Ctrl+B / Ctrl+Shift+B"),
+        ("AI Remove Background / BiRefNet Lite", "Ctrl+B / Ctrl+Shift+B"),
+        ("Remove Background", "Ctrl+Alt+B"),
         ("Compare before / after", "\\"),
         ("Undo / Redo", "Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y"),
         ("Open / Open project", "Ctrl+O / Ctrl+Shift+O"),

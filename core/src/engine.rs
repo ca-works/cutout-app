@@ -386,7 +386,7 @@ impl Engine {
         check_dimensions(w, h)?;
         let pixels = Rgba::from_vec(w, h, rgba)?;
         if !as_layer || self.doc.is_empty() {
-            if !self.doc.is_empty() {
+            if !self.doc.is_empty() || self.history.can_undo() || self.history.can_redo() {
                 self.checkpoint("Open Image");
             }
             let mut doc = Document { width: w, height: h, ..Default::default() };
@@ -455,6 +455,30 @@ impl Engine {
         let l = self.doc.layer(id)?;
         let p = l.original.as_ref().unwrap_or(&l.pixels);
         Some(((*p.data).clone(), p.w, p.h))
+    }
+
+    pub fn layer_rgba(&self, id: LayerId) -> Option<Rgba> {
+        self.doc.layer(id).map(|layer| layer.pixels.clone())
+    }
+
+    /// Intersect with the layer's current visibility, retaining edits to its pixels.
+    pub fn intersect_layer_mask(&mut self, id: LayerId, mut mask: Plane, label: &str) -> Result<(), String> {
+        let layer = self.doc.layer(id).ok_or("Layer not found")?;
+        if (layer.w(), layer.h()) != (mask.w, mask.h) {
+            return Err("Mask size does not match the layer.".into());
+        }
+        if let Some(previous) = &layer.mask {
+            for (next, previous) in std::sync::Arc::make_mut(&mut mask.data).iter_mut().zip(previous.data.iter()) {
+                *next = (*next).min(*previous);
+            }
+            if mask.data == previous.data {
+                return Ok(());
+            }
+        }
+        self.checkpoint(label);
+        self.doc.layer_mut(id).unwrap().mask = Some(mask);
+        self.touch_layer(id);
+        Ok(())
     }
 
     pub fn set_layer_mask(&mut self, id: LayerId, alpha: Vec<u8>, w: u32, h: u32, label: &str) -> Result<(), String> {
@@ -660,7 +684,16 @@ impl Engine {
         match cmd {
             "state" => Ok(self.state()),
             "clear" => {
-                *self = Engine { generation: self.generation + 1, ..Engine::new() };
+                if b(v, "undoable", false) {
+                    if !self.doc.is_empty() {
+                        cp!("Clear Workspace");
+                        self.restore(Snapshot { label: String::new(), doc: Document::default(), selection: None });
+                        self.quick_base = None;
+                        self.source = None;
+                    }
+                } else {
+                    *self = Engine { generation: self.generation + 1, ..Engine::new() };
+                }
                 Ok(Value::Null)
             }
             "new_document" => {

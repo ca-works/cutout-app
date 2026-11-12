@@ -82,6 +82,7 @@ fn action_named(n: &str) -> Option<Action> {
         "KeepOnlySelection" => Action::KeepOnlySelection,
         "RemoveBg" => Action::RemoveBg(RemovalMode::Best),
         "RemoveBgFast" => Action::RemoveBg(RemovalMode::Fast),
+        "RemoveFlatBackground" => Action::RemoveFlatBackground,
         "Compare" => Action::Compare,
         "ToggleTools" => Action::ToggleTools,
         "ToggleLayers" => Action::ToggleLayers,
