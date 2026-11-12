@@ -285,6 +285,7 @@ pub struct TextSheet {
 }
 
 pub enum Sheet {
+    ClearWorkspace,
     ModelSetup,
     Resize(ResizeSheet),
     Text(TextSheet),
@@ -307,6 +308,13 @@ pub struct Toast {
 pub struct Busy {
     pub title: String,
     pub cancellable: bool,
+}
+
+pub struct ConventionalJob {
+    pub rx: Receiver<Result<Vec<u8>, String>>,
+    pub layer: i64,
+    pub w: u32,
+    pub h: u32,
 }
 
 pub struct RemovalJob {
@@ -369,6 +377,7 @@ pub enum Action {
     OpenProject,
     RestoreSession,
     ClearWorkspace,
+    ConfirmClearWorkspace,
     SaveProject,
     SaveProjectAs,
     Export(Format, f64),
@@ -383,6 +392,7 @@ pub enum Action {
     DeleteSelection,
     KeepOnlySelection,
     RemoveBg(RemovalMode),
+    RemoveBgConventional,
     RefineEdges,
     Compare,
     CropToSelection,
@@ -489,6 +499,7 @@ pub struct App {
     pub thumbs: HashMap<i64, (i64, TextureHandle)>,
     pub canvas: CanvasState,
     pub removal: Option<RemovalJob>,
+    pub conventional: Option<ConventionalJob>,
     pub refine: RefineState,
     pub adjust: AdjustState,
     pub palette: Palette,
@@ -518,10 +529,14 @@ pub struct App {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>) -> App {
-        let ctx = cc.egui_ctx.clone();
+        let mut app = Self::with_context(cc.egui_ctx.clone(), Settings::load(), crate::platform::ParentWindow::from_creation(cc));
+        if !open.is_empty() { app.open_paths(&open, false); }
+        app
+    }
+
+    fn with_context(ctx: egui::Context, settings: Settings, parent: Option<crate::platform::ParentWindow>) -> App {
         theme::install_fonts(&ctx);
         theme::apply(&ctx);
-        let settings = Settings::load();
         let tool = Tool::from_id(&settings.tool).unwrap_or(Tool::Move);
         let mut app = App {
             ctx: ctx.clone(),
@@ -543,6 +558,7 @@ impl App {
             thumbs: HashMap::new(),
             canvas: CanvasState::new(),
             removal: None,
+            conventional: None,
             refine: RefineState::default(),
             adjust: AdjustState::default(),
             palette: Palette::get(true),
@@ -561,7 +577,7 @@ impl App {
             first_frame: None,
             startup_probe: std::env::var_os("CUTOUT_STARTUP_PROBE").map(PathBuf::from),
             reduce_motion: false,
-            parent: crate::platform::ParentWindow::from_creation(cc),
+            parent,
             script: crate::selftest::Script::from_env(),
             shot_slot: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(windows)]
@@ -571,9 +587,6 @@ impl App {
         app.reduce_motion = !crate::platform::sysinfo::animations_enabled();
         if app.reduce_motion {
             ctx.all_styles_mut(|s| s.animation_time = 0.0);
-        }
-        if !open.is_empty() {
-            app.open_paths(&open, false);
         }
         app
     }
@@ -630,6 +643,7 @@ impl App {
     }
 
     pub fn run_ex(&mut self, cmd: &str, args: Value, refresh: bool, silent: bool) -> Option<Value> {
+        if self.conventional.is_some() { self.cancel_removal(); }
         match self.doc.run(cmd, args) {
             Ok(r) => {
                 if refresh {
@@ -720,6 +734,7 @@ impl App {
     }
 
     pub fn import_image(&mut self, img: Image, name: &str, as_layer: bool) -> Result<(), String> {
+        if self.conventional.is_some() { self.cancel_removal(); }
         let was_empty = self.is_empty();
         self.doc.import(img, name, as_layer && !was_empty)?;
         if was_empty || !as_layer {
@@ -787,6 +802,14 @@ impl App {
             self.save_recovery();
         }
         self.cancel_removal();
+        self.canvas = CanvasState::new();
+        self.drop_targeted = false;
+        self.toast = None;
+        self.sheet = None;
+        self.renaming = None;
+        self.layer_drag = None;
+        self.opacity_editing = false;
+        self.active_backend = None;
         let _ = self.doc.run("clear", json!({}));
         self.project_path = None;
         self.compare_on = false;
@@ -826,6 +849,7 @@ impl App {
     // ---------------------------------------------------------- projects ---
 
     pub fn open_project(&mut self, path: &std::path::Path, recovery: bool) {
+        if self.conventional.is_some() { self.cancel_removal(); }
         match self.doc.run("open_project", json!({"path": path.to_string_lossy()})) {
             Ok(_) => {
                 self.project_path = if recovery { None } else { Some(path.to_path_buf()) };
@@ -941,12 +965,14 @@ impl App {
     // -------------------------------------------------------------- undo ---
 
     pub fn undo(&mut self) {
+        if self.conventional.is_some() { self.cancel_removal(); }
         if self.doc.run("undo", json!({})).is_ok() {
             self.refresh(false);
         }
     }
 
     pub fn redo(&mut self) {
+        if self.conventional.is_some() { self.cancel_removal(); }
         if self.doc.run("redo", json!({})).is_ok() {
             self.refresh(false);
         }
@@ -969,7 +995,7 @@ impl App {
     }
 
     pub fn is_removing(&self) -> bool {
-        self.removal.is_some()
+        self.removal.is_some() || self.conventional.is_some()
     }
 
     pub fn remove_background(&mut self, mode: RemovalMode) {
@@ -978,7 +1004,7 @@ impl App {
 
     /// `force` skips the free-memory warning ("Continue anyway").
     pub fn remove_background_ex(&mut self, mode: RemovalMode, force: bool) {
-        if self.is_empty() || self.removal.is_some() {
+        if self.is_empty() || self.is_removing() {
             return;
         }
         let Some(layer) = self.state().active_layer().cloned().or_else(|| self.state().layers.last().cloned()) else { return };
@@ -1017,10 +1043,46 @@ impl App {
         if let Some(j) = self.removal.take() {
             j.removal.cancel();
         }
+        self.conventional = None;
         self.busy = None;
     }
 
+    pub fn remove_background_conventional(&mut self) {
+        if self.is_empty() || self.is_removing() { return; }
+        let Some(layer) = self.state().active_layer().cloned() else { return };
+        let Some(pixels) = self.doc.layer_pixels(layer.id) else { return };
+        let (w, h) = (pixels.width, pixels.height);
+        let (tx, rx) = channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::background::mask(&pixels.data, w, h));
+            ctx.request_repaint();
+        });
+        self.conventional = Some(ConventionalJob { rx, layer: layer.id, w, h });
+        self.busy = Some(Busy { title: "Removing background…".into(), cancellable: true });
+    }
+
     fn poll_removal(&mut self) {
+        if let Some(job) = &self.conventional {
+            match job.rx.try_recv() {
+                Ok(result) => {
+                    let job = self.conventional.take().unwrap();
+                    self.busy = None;
+                    match result.and_then(|alpha| self.doc.set_layer_mask(job.layer, alpha, job.w, job.h, "Remove Background")) {
+                        Ok(()) => self.refresh(false),
+                        Err(e) => self.error_toast(&e),
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.conventional = None;
+                    self.busy = None;
+                    self.error_toast("Background removal worker stopped");
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.ctx.request_repaint_after(Duration::from_millis(16)),
+            }
+            return;
+        }
+
         let Some(job) = &self.removal else { return };
         let msg = job.removal.rx.try_recv();
         let Ok(res) = msg else {
@@ -1131,7 +1193,7 @@ impl App {
             Action::Undo => st.can_undo,
             Action::Redo => st.can_redo,
             Action::Deselect | Action::DeleteSelection | Action::KeepOnlySelection | Action::CropToSelection => st.has_selection,
-            Action::RemoveBg(_) => !empty && !self.is_removing(),
+            Action::RemoveBg(_) | Action::RemoveBgConventional => !empty && !self.is_removing(),
             Action::DeleteLayer | Action::MergeDown => st.layers.len() > 1,
             Action::RasterizeText => st.active_layer().map(|l| l.is_text).unwrap_or(false),
             _ => true,
@@ -1146,7 +1208,10 @@ impl App {
             Action::Open => self.open_dialog(),
             Action::OpenProject => self.open_project_dialog(),
             Action::RestoreSession => self.restore_last_session(),
-            Action::ClearWorkspace => self.clear_workspace(true),
+            Action::ClearWorkspace => self.sheet = Some(Sheet::ClearWorkspace),
+            Action::ConfirmClearWorkspace => {
+                if matches!(self.sheet, Some(Sheet::ClearWorkspace)) { self.clear_workspace(false); }
+            }
             Action::SaveProject => self.save_project(false),
             Action::SaveProjectAs => self.save_project(true),
             Action::Export(f, s) => self.export(f, s),
@@ -1171,6 +1236,7 @@ impl App {
                 self.run("mask_from_selection", json!({}));
             }
             Action::RemoveBg(m) => self.remove_background(m),
+            Action::RemoveBgConventional => self.remove_background_conventional(),
             Action::RefineEdges => {
                 self.settings.show_tools = true;
                 self.panel = PanelKind::Refine;
@@ -1516,5 +1582,76 @@ impl eframe::App for App {
         self.script_inject(_raw);
         #[cfg(windows)]
         self.poll_paste_key(_raw);
+    }
+}
+
+#[cfg(test)]
+mod windows_update_tests {
+    use super::*;
+    fn editor() -> App { App::with_context(egui::Context::default(), Settings::default(), None) }
+    fn import(app: &mut App) -> Vec<u8> {
+        let mut data = [255; 4].repeat(32 * 32);
+        for y in 10..22 { for x in 10..22 { data[(y*32+x)*4..(y*32+x)*4+4].copy_from_slice(&[0,0,0,128]); } }
+        app.doc.import(Image { width:32, height:32, data:data.clone() }, "subject", false).unwrap();
+        app.refresh(true);
+        data
+    }
+    #[test]
+    fn conventional_routes_without_model_and_undo_redo_preserve_source_and_layers() {
+        let mut app=editor(); let original=import(&mut app);
+        app.perform(Action::DuplicateLayer); let count=app.state().layers.len();
+        app.perform(Action::RemoveBgConventional);
+        assert!(app.conventional.is_some()); assert!(app.removal.is_none()); assert!(app.sheet.is_none());
+        assert!(!app.enabled(&Action::RemoveBg(RemovalMode::Best)));
+        let deadline=Instant::now()+Duration::from_secs(5);
+        while app.conventional.is_some() && Instant::now()<deadline { app.poll_removal(); std::thread::yield_now(); }
+        assert!(app.conventional.is_none()); assert!(app.state().active_layer().unwrap().has_mask);
+        assert_eq!(app.state().layers.len(),count);
+        let id=app.state().active.unwrap(); assert_eq!(app.doc.layer_pixels(id).unwrap().data,original);
+        let masked=app.doc.export(false).unwrap(); assert_eq!(masked.data[3],255); // unrelated bottom layer remains
+        app.undo(); assert!(!app.state().active_layer().unwrap().has_mask);
+        app.redo(); assert!(app.state().active_layer().unwrap().has_mask);
+    }
+    #[test]
+    fn clear_requires_confirmation_and_resets_transients_not_preferences() {
+        let mut app=editor();
+        app.perform(Action::ClearWorkspace); assert!(app.sheet.is_none()); // empty: no confirmation
+        import(&mut app); app.perform(Action::DuplicateLayer); app.perform(Action::SelectAll);
+        app.canvas.polygon.push((1.0,2.0)); app.canvas.crop_rect=Some([1.0;4]);
+        app.compare_on=true; app.refine.active=true; app.renaming=Some((1,"editing".into()));
+        app.layer_drag=Some(1); app.selected_layers.insert(1);
+        let settings=app.settings.clone();
+        app.perform(Action::ClearWorkspace);
+        assert!(matches!(app.sheet,Some(Sheet::ClearWorkspace))); assert!(!app.is_empty());
+        app.sheet=None; // cancel
+        assert!(!app.is_empty()); app.perform(Action::ConfirmClearWorkspace); assert!(!app.is_empty());
+        app.perform(Action::ClearWorkspace); app.perform(Action::ConfirmClearWorkspace);
+        assert!(app.is_empty()); assert!(!app.state().has_selection); assert!(app.outline.is_empty());
+        assert!(app.canvas.polygon.is_empty()); assert!(app.canvas.crop_rect.is_none()); assert!(app.canvas.tiles.is_none());
+        assert!(app.canvas.reveal.is_none()); assert!(app.thumbs.is_empty()); assert!(app.selected_layers.is_empty());
+        assert!(!app.compare_on); assert!(!app.refine.active); assert!(app.renaming.is_none()); assert!(app.layer_drag.is_none());
+        assert_eq!(app.settings,settings); assert!(!app.enabled(&Action::RemoveBgConventional));
+        assert!(!app.state().can_undo); assert!(app.sheet.is_none());
+    }
+    #[test]
+    fn editing_discards_stale_conventional_result() {
+        let mut app=editor(); import(&mut app); app.perform(Action::RemoveBgConventional);
+        app.run("select_all",json!({})); app.poll_removal();
+        assert!(app.conventional.is_none()); assert!(!app.state().active_layer().unwrap().has_mask);
+        assert!(app.state().has_selection);
+    }
+    #[test]
+    fn clear_discards_in_flight_result() {
+        let mut app=editor(); import(&mut app); app.perform(Action::RemoveBgConventional);
+        app.clear_workspace(false); app.poll_removal(); assert!(app.is_empty()); assert!(!app.is_removing());
+    }
+    #[test]
+    #[ignore = "requires an interactive Windows clipboard; overwrites clipboard test data"]
+    #[cfg(windows)]
+    fn clear_preserves_native_clipboard() {
+        let mut app=editor(); let original=import(&mut app);
+        clipboard::write(&Image { width:32,height:32,data:original.clone() },Format::Png).unwrap();
+        app.perform(Action::ClearWorkspace); app.perform(Action::ConfirmClearWorkspace);
+        assert_eq!(clipboard::read().unwrap()[0].image.data,original);
     }
 }

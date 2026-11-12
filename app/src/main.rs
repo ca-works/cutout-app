@@ -5,6 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod background;
 mod canvas;
 mod codec;
 mod engine;

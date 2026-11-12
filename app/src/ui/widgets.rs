@@ -227,3 +227,25 @@ pub fn small(pal: Palette, s: impl Into<String>) -> egui::RichText {
 pub fn icon_label(ui: &mut Ui, glyph: char, size: f32, color: Color32) -> Rect {
     ui.label(icon(glyph, size).color(color)).rect
 }
+
+/// AI-only tooltip: foreground area avoids panel clipping; placement flips below
+/// near the top of the viewport. Uses the current theme and respects reduced motion.
+pub fn ai_removal_tooltip(ctx: &egui::Context, button: &Response, reduce_motion: bool) {
+    const TEXT: &str = "Slower, but better for complex images";
+    let id = button.id.with("ai_tooltip");
+    let t = ctx.animate_bool_with_time(id, button.hovered(), if reduce_motion { 0.0 } else { 0.15 });
+    if t <= 0.0 { return; }
+    let screen = ctx.viewport_rect();
+    let size = Vec2::new(258.0, 32.0);
+    let above = button.rect.top() - size.y - 8.0;
+    let y = if above >= screen.top() + 4.0 { above } else { button.rect.bottom() + 8.0 };
+    let x = (button.rect.center().x - size.x / 2.0).clamp(screen.left() + 4.0, (screen.right() - size.x - 4.0).max(screen.left() + 4.0));
+    let drift = if reduce_motion { 0.0 } else { 3.0 * (1.0 - t) };
+    egui::Area::new(id.with("area")).order(egui::Order::Tooltip)
+        .fixed_pos(egui::pos2(x, y + drift)).interactable(false).show(ctx, |ui| {
+            ui.set_opacity(t);
+            egui::Frame::popup(ui.style()).corner_radius(CornerRadius::same(8)).show(ui, |ui| {
+                ui.label(egui::RichText::new(TEXT).size(12.0));
+            });
+        });
+}

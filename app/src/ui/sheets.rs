@@ -22,6 +22,19 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let dismissible = !matches!(sheet, Sheet::Text(_));
     let resp = egui::Modal::new(egui::Id::new("sheet")).backdrop_color(Color32::from_black_alpha(80)).frame(frame).show(ctx, |ui| {
         match &mut sheet {
+            Sheet::ClearWorkspace => {
+                ui.set_width(360.0);
+                title(ui, "Clear Workspace?");
+                ui.label("Remove all images, layers and selections? This cannot be undone. Files, clipboard and preferences will be kept.");
+                ui.horizontal(|ui| {
+                    if small_button(ui, p, "Cancel", true).clicked() { close = true; }
+                    if primary_small(ui, p, "Clear Workspace", true).clicked() {
+                        close = true;
+                        after.push(Box::new(|app| app.clear_workspace(false)));
+                    }
+                });
+            }
+
             Sheet::ModelSetup => model_setup(app, ui, &mut close, &mut after),
             Sheet::Resize(r) => resize(app, ui, r, &mut close),
             Sheet::Text(t) => text_sheet(app, ui, t, &mut close),

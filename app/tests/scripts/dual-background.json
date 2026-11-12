@@ -1,0 +1,13 @@
+[
+  {"open": "${DATA}/test-subject.png"},
+  {"wait": 6},
+  {"action": "RemoveBgConventional"}, {"sleep": 1000},
+  {"expect": {"has_mask": true, "can_undo": true, "sheet": false}},
+  {"action": "Undo"}, {"expect": {"has_mask": false}},
+  {"action": "Redo"}, {"expect": {"has_mask": true}},
+  {"action": "ClearWorkspace"}, {"expect": {"empty": false, "sheet": true}},
+  {"key": "Escape"}, {"wait": 3}, {"expect": {"empty": false, "sheet": false}},
+  {"action": "ClearWorkspace"}, {"action": "ConfirmClearWorkspace"},
+  {"expect": {"empty": true, "selection": false, "sheet": false}},
+  {"quit": true}
+]

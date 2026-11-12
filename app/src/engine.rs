@@ -230,3 +230,22 @@ impl Doc {
         Some(Image { width: w, height: h, data: (*r.data).clone() })
     }
 }
+
+#[cfg(test)]
+mod windows_mask_integration {
+    use super::*;
+    #[test]
+    fn conventional_mask_multiplies_source_alpha_once_and_undo_restores_it() {
+        let mut doc=Doc::new();
+        let mut data=[255;4].repeat(16*16);
+        for y in 4..12 { for x in 4..12 { data[(y*16+x)*4..(y*16+x)*4+4].copy_from_slice(&[0,0,0,128]); } }
+        let id=doc.import(Image { width:16,height:16,data:data.clone() },"alpha",false).unwrap();
+        let mask=crate::background::mask(&data,16,16).unwrap();
+        doc.set_layer_mask(id,mask,16,16,"Remove Background").unwrap();
+        let result=doc.export(false).unwrap();
+        assert_eq!(result.data[3],0); assert_eq!(result.data[(8*16+8)*4+3],128);
+        assert_eq!((result.width,result.height),(16,16));
+        doc.run("undo",json!({})).unwrap(); assert_eq!(doc.export(false).unwrap().data,data);
+        doc.run("redo",json!({})).unwrap(); assert_eq!(doc.export(false).unwrap().data,result.data);
+    }
+}

@@ -12,7 +12,7 @@
   {"key": "Escape"}, {"sleep": 1000},
   {"appearance": "light"}, {"sleep": 1000},
   {"shot": "${OUT}/light-2-tools-layers.png"},
-  {"action": "ClearWorkspace"}, {"sleep": 1000},
+  {"action": "ClearWorkspace"}, {"action": "ConfirmClearWorkspace"}, {"sleep": 1000},
   {"shot": "${OUT}/light-1-empty.png"},
   {"quit": true}
 ]
