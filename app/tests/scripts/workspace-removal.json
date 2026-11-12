@@ -1,5 +1,5 @@
 [
-  {"open": "${DATA}/test-subject.png"},
+  {"open": "${DATA}/test-subject-flat.png"},
   {"expect": {"layers": 1, "has_mask": false, "size": [640, 480]}},
   {"action": "RemoveFlatBackground"},
   {"expect": {"has_mask": true, "transparent_pixels": true, "size": [640, 480]}},
