@@ -4,6 +4,8 @@ pub mod clipboard;
 pub mod gpu;
 pub mod paths;
 pub mod sysinfo;
+#[cfg(windows)]
+pub mod window;
 
 use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle, WindowHandle};
 
