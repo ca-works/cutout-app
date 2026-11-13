@@ -519,11 +519,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>) -> App {
+    pub fn new(cc: &eframe::CreationContext<'_>, open: Vec<PathBuf>, settings: Settings) -> App {
         let ctx = cc.egui_ctx.clone();
         theme::install_fonts(&ctx);
         theme::apply(&ctx);
-        let settings = Settings::load();
         let tool = Tool::from_id(&settings.tool).unwrap_or(Tool::Move);
         let mut app = App {
             ctx: ctx.clone(),
@@ -1461,6 +1460,7 @@ impl App {
         }
     }
 
+    #[cfg(not(windows))]
     fn remember_window(&mut self, ctx: &egui::Context) {
         let (inner, outer, maximized, minimized) = ctx.input(|i| {
             let v = i.viewport();
@@ -1481,9 +1481,6 @@ impl App {
     }
 
     pub fn finish_frame(&mut self, ctx: &egui::Context) {
-        if self.script.is_none() {
-            self.remember_window(ctx);
-        }
         // Quietly persist preferences once the user stops dragging.
         if !ctx.input(|i| i.pointer.any_down()) {
             self.save_settings_if_changed();
@@ -1541,6 +1538,12 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         crate::ui::root(self, ui, frame);
         let ctx = ui.ctx().clone();
+        if self.script.is_none() {
+            #[cfg(windows)]
+            crate::platform::window::remember(frame, &mut self.settings);
+            #[cfg(not(windows))]
+            self.remember_window(&ctx);
+        }
         self.finish_frame(&ctx);
     }
 

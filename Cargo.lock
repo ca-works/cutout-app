@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "cutout-desktop"
-version = "0.1.0-preview.3"
+version = "0.1.0-preview.5"
 dependencies = [
  "arboard",
  "cosmic-text",

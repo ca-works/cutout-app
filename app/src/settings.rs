@@ -146,6 +146,9 @@ pub struct Settings {
     pub sec_image: bool,
     pub sec_adjust: bool,
     pub window: Option<[f32; 4]>,
+    /// Windows desktop origin in physical pixels. Older profiles only have egui points in `window`.
+    #[cfg(windows)]
+    pub window_origin_px: Option<[i32; 2]>,
     pub maximized: bool,
 }
 
@@ -166,6 +169,8 @@ impl Default for Settings {
             sec_image: false,
             sec_adjust: false,
             window: None,
+            #[cfg(windows)]
+            window_origin_px: None,
             maximized: false,
         }
     }
